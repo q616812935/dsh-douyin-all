@@ -8,7 +8,7 @@
 2. 回到 Plugins 页，切到 **Discover** 标签，添加本仓库的索引地址：
 
 ```
-https://a941025-rgb.github.io/dsh-douyin-all/index.json
+https://q616812935-rgb.github.io/dsh-douyin-all/index.json
 ```
 
 ## 当前收录
