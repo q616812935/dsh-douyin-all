@@ -66,9 +66,9 @@
       },
       "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0Ij4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxNCIgZmlsbD0iIzBmMTcyYSIvPgogIDwhLS0g6bG86Lqr77ya5aSn6IKl6bG8IC0tPgogIDxwYXRoIGQ9Ik04IDMzIEMgMTQgMjAsIDM0IDE4LCA0MiAzMCBDIDM0IDQ0LCAxNCA0NiwgOCAzMyBaIiBmaWxsPSIjMjJkM2VlIiBzdHJva2U9IiMwZTc0OTAiIHN0cm9rZS13aWR0aD0iMiIvPgogIDwhLS0g5bC+5be0IC0tPgogIDxwYXRoIGQ9Ik00MiAzMCBMNTcgMjEgTDUzIDMzIEw1NyA0NSBaIiBmaWxsPSIjMzhiZGY4IiBzdHJva2U9IiMwZTc0OTAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogIDwhLS0g55y8552b77ya5ZOo5YW15Zyo55yLIC0tPgogIDxjaXJjbGUgY3g9IjE5IiBjeT0iMzAiIHI9IjQuMiIgZmlsbD0iIzBmMTcyYSIvPgogIDxjaXJjbGUgY3g9IjIwLjIiIGN5PSIyOC44IiByPSIxLjUiIGZpbGw9IiNlMGYyZmUiLz4KICA8IS0tIOiFrue6oiAtLT4KICA8ZWxsaXBzZSBjeD0iMjciIGN5PSIzNyIgcng9IjQiIHJ5PSIyLjQiIGZpbGw9IiNmYjcxODUiIG9wYWNpdHk9IjAuNTUiLz4KICA8IS0tIOawlOazoe+8muWcqOivtOivnSAtLT4KICA8Y2lyY2xlIGN4PSI1MCIgY3k9IjEyIiByPSIzIiBmaWxsPSIjYTVmM2ZjIiBvcGFjaXR5PSIwLjkiLz4KICA8Y2lyY2xlIGN4PSI1NyIgY3k9IjciIHI9IjIiIGZpbGw9IiNhNWYzZmMiIG9wYWNpdHk9IjAuNiIvPgo8L3N2Zz4K",
       "author": "dsh-douyin-all authors",
-      "homepage": "https://github.com/a941025-rgb/dsh-douyin-all",
+      "homepage": "https://github.com/q616812935/dsh-douyin-all",
       "repository": {
-        "url": "https://github.com/a941025-rgb/dsh-douyin-all"
+        "url": "https://github.com/q616812935/dsh-douyin-all"
       },
       "metadata": {
         "category": "automation",
@@ -96,9 +96,12 @@
       "versions": [
         {
           "version": "0.1.0",
-          "publishTimestamp": 1793786900,
+          "publishTimestamp": 1793789293,
           "source": {
-            "type": "npm"
+            "type": "git",
+            "url": "https://github.com/q616812935/dsh-douyin-all.git",
+            "commit": "0123456789abcdef0123456789abcdef01234567",
+            "path": "plugin"
           },
           "engines": {
             "dsh": ">=0.2.1-rc.2 <0.3.0-0"

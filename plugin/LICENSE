@@ -1,0 +1,96 @@
+PROPRIETARY SOFTWARE LICENSE (UNLICENSED)
+All Rights Reserved.
+
+Package:  dsh-douyin-all
+Copyright (c) 2026 dsh-douyin-all authors. All rights reserved.
+
+This software and its accompanying files (the "Software") are proprietary and
+confidential. They are NOT open source. The Software is not licensed under the
+MIT License or under any other permissive or copyleft open-source license, and
+nothing in this repository, package metadata, documentation, or source headers
+grants any right to use the Software other than as expressly stated below.
+
+1. LIMITED PERMISSION TO RUN
+
+   You are permitted to install and run an unmodified copy of the Software for
+   your own personal, non-commercial use, subject to the terms of this file.
+
+2. PROHIBITED ACTS (MODIFICATION, FORKING, REDISTRIBUTION, REPUBLISHING)
+
+   Unless you hold a separate written commercial or redistribution license
+   signed by the copyright holder, you must NOT, in whole or in part:
+
+   a. copy, modify, adapt, translate, refactor, decompile, disassemble, or
+      otherwise reverse engineer the Software, or create any derivative work,
+      fork, patch set, or "cleaned-up rewrite" based on it;
+   b. remove, obscure, or alter any copyright notice, license notice, author
+      attribution, package name, or version marker;
+   c. redistribute, sublicense, sell, rent, lease, lend, publish, upload, mirror,
+      or otherwise make the Software or any derivative of it available to any
+      third party, including by publishing it (or a modified or renamed version
+      of it) to any package registry such as npm, to any code-hosting platform,
+      or inside any other product, bundle, template, or marketplace listing;
+   d. rename the package, change its author or maintainer fields, or re-publish
+      it under a different package name, scope, or account;
+   e. use the Software, or any code derived from it, to train, fine-tune, or
+      otherwise build machine-learning models or datasets for redistribution.
+
+3. CONTRIBUTIONS
+
+   Any modification, patch, or contribution you send to the copyright holder
+   becomes the sole property of the copyright holder, and you assign all rights
+   in it to the copyright holder, unless a separate written agreement says
+   otherwise.
+
+4. THIRD-PARTY COMPONENTS
+
+   Portions of the Software were informed by the following MIT-licensed projects.
+   Their notices are reproduced here as required by their licenses; the terms of
+   this file apply to the combined Software as distributed by the copyright
+   holder.
+
+   - dsh-douyin-watch (MIT)  Copyright (c) its authors
+   - dsh-fish-soul (MIT)     Copyright (c) its authors
+   - dsh-douyin-browser-local (MIT)  Copyright (c) its authors
+
+   The MIT License text applicable to those upstream components:
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy
+   of this software and associated documentation files (the "Software"), to deal
+   in the Software without restriction, including without limitation the rights
+   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   copies of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
+
+   The above copyright notice and this permission notice shall be included in all
+   copies or substantial portions of the Software.
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
+
+5. TERMINATION
+
+   Any breach of this license immediately and automatically terminates all
+   rights granted to you, without notice. On termination you must delete all
+   copies of the Software in your possession. The copyright holder may also seek
+   injunctive relief and damages for unauthorized republication.
+
+6. NO WARRANTY; LIMITATION OF LIABILITY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. TO THE MAXIMUM
+   EXTENT PERMITTED BY LAW, THE COPYRIGHT HOLDER IS NOT LIABLE FOR ANY CLAIM,
+   DAMAGES, LOSS OF DATA, ACCOUNT RESTRICTIONS, OR OTHER LIABILITY ARISING FROM
+   OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+7. COMMERCIAL LICENSING
+
+   For any use not expressly permitted above — including commercial use,
+   internal redistribution, white-labeling, or publication of a modified version
+   — you must obtain a separate written license from the copyright holder.
+
+END OF TERMS

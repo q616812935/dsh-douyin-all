@@ -1,7 +1,7 @@
 // 生成 DSH 插件市场「格式 1」索引（dsh-plugin-market-index 校验器规则）
 // 用法：node _mkindex.mjs            → 写到 _dev/market-index.json 并自检
 //       node _mkindex.mjs --write    → 额外写回 ../README.md 的市场条目片段
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync as existsSyncE } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,8 +10,17 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = HERE
 const OUT_DIR = join(HERE, '_dev')
 
-const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
-const iconB64 = readFileSync(join(ROOT, 'icon.svg')).toString('base64')
+// 包清单优先取 plugin/package.json（Git 源安装的根目录），否则取仓库根 package.json
+const PKG_PATH = existsSyncE(join(ROOT, 'plugin', 'package.json')) ? join(ROOT, 'plugin', 'package.json') : join(ROOT, 'package.json')
+const PLUGIN_DIR = PKG_PATH === join(ROOT, 'plugin', 'package.json') ? join(ROOT, 'plugin') : ROOT
+const pkg = JSON.parse(readFileSync(PKG_PATH, 'utf8'))
+const iconB64 = readFileSync(join(PLUGIN_DIR, 'icon.svg')).toString('base64')
+
+// 版本来源：source = npm（默认）或 git（把 plugin/ 源码推到仓库，索引指到某个提交）
+//   DSH_SRC_TYPE=git DSH_SRC_COMMIT=<40 位 sha> DSH_SRC_PATH=plugin node make-index.mjs
+const SRC_TYPE = (process.env.DSH_SRC_TYPE || 'npm').trim()
+const SRC_COMMIT = (process.env.DSH_SRC_COMMIT || '').trim()
+const SRC_PATH = (process.env.DSH_SRC_PATH || 'plugin').trim()
 
 const ICON = `data:image/svg+xml;base64,${iconB64}`
 
@@ -24,6 +33,16 @@ if (!GH) {
   } catch {}
 }
 const REPO_HOME = GH ? `https://github.com/${GH}` : 'https://github.com/example/dsh-douyin-all'
+
+// 索引里每个版本的 source：npm 还是 git（git 需要 40 位提交哈希）
+const VERSION_SOURCE = (() => {
+  if (SRC_TYPE !== 'git') return { type: 'npm' }
+  if (!/^[0-9a-f]{40}$/u.test(SRC_COMMIT)) {
+    console.error(JSON.stringify({ ok: false, error: 'DSH_SRC_TYPE=git 时必须给 DSH_SRC_COMMIT=<40 位 sha>' }))
+    process.exit(1)
+  }
+  return { type: 'git', url: `https://github.com/${GH || 'example/dsh-douyin-all'}.git`, commit: SRC_COMMIT, path: SRC_PATH }
+})()
 
 const SUMMARY_ZH = '大肥鱼抖音助手：把私信自动回复、作品评论自动回复、刷推荐流挑视频转发、人格与长期记忆、语音回复、观看日报合并成一个 DSH 插件，全部走同一个 Edge 浏览器会话。'
 const SUMMARY_EN = 'Douyin (TikTok China) companion for DeepSeek Harness: auto-reply to DMs, auto-reply to comments on your own and others\' works, browse the For-You feed and share picks, persona + long-term memory, TTS voice replies and daily viewing reports — all through one shared Edge session.'
@@ -84,7 +103,7 @@ const index = {
         {
           version: pkg.version,
           publishTimestamp: Math.floor(Date.now() / 1000),
-          source: { type: 'npm' },
+          source: VERSION_SOURCE,
           engines: { dsh: pkg.peerDependencies?.['@deepseek-ai/dsh'] || '>=0.2.1-rc.2 <0.3.0-0' }
         }
       ]

@@ -1,0 +1,57 @@
+{
+  "meta": {
+    "title": "刷抖音",
+    "description": "大肥鱼抖音助手：回私信、回作品评论、刷推荐流挑视频，带人格与长期记忆。"
+  },
+  "section": {
+    "title": "大肥鱼抖音助手",
+    "intro": "她在后台盯着私信和评论，用宿主模型说话，会把聊到的事记进长期记忆。"
+  },
+  "tabs": {
+    "basic": "基础设置",
+    "dm": "私信",
+    "comments": "评论",
+    "feed": "刷视频",
+    "diag": "自检与日报"
+  },
+  "fields": {
+    "model": "DSH 模型",
+    "followHost": "跟随宿主设置（推荐）",
+    "peer": "对端昵称",
+    "owner": "我的抖音昵称",
+    "persona": "人格卡",
+    "dmEnabled": "自动回私信",
+    "speakFirst": "允许她主动开口",
+    "perDay": "主动开口每天上限",
+    "replyDelay": "回复前故意等（毫秒）",
+    "voiceReply": "回完再补一条语音",
+    "commentSelf": "回我自己作品下的评论",
+    "commentOthers": "回别人作品下的评论",
+    "maxChars": "单条评论最长字数",
+    "perHour": "每小时最多回复",
+    "perDayComment": "每天最多回复",
+    "feedEnabled": "刷推荐流",
+    "feedCount": "每轮看几条",
+    "shareToPeer": "挑到的视频转发给她",
+    "reportEnabled": "生成观看日报",
+    "reportHour": "日报几点生成"
+  },
+  "hints": {
+    "model": "留空则跟 DSH 设置页选的模型走；显式选一次可让状态栏显示真实模型名。",
+    "commentOthers": "默认关闭：在别人作品下留评论容易被举报或触发风控。"
+  },
+  "actions": {
+    "runNow": "立即巡检一轮",
+    "save": "保存",
+    "saved": "已保存",
+    "testHealth": "自检",
+    "refreshReport": "刷新日报"
+  },
+  "status": {
+    "sentinel": "哨兵",
+    "memories": "记忆",
+    "diary": "日记",
+    "nextRun": "下次巡检",
+    "modelIdle": "未配置模型"
+  }
+}
