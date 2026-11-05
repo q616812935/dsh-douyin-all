@@ -95,13 +95,10 @@
       },
       "versions": [
         {
-          "version": "0.1.0",
-          "publishTimestamp": 1793789652,
+          "version": "0.1.1",
+          "publishTimestamp": 1793862311,
           "source": {
-            "type": "git",
-            "url": "https://github.com/q616812935/dsh-douyin-all.git",
-            "commit": "b1eaee64dd33c8fc283c93c5f1e3f6c114f6f11d",
-            "path": "plugin"
+            "type": "npm"
           },
           "engines": {
             "dsh": ">=0.2.1-rc.2 <0.3.0-0"
