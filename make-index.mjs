@@ -10,17 +10,19 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = HERE
 const OUT_DIR = join(HERE, '_dev')
 
-// 包清单优先取 plugin/package.json（Git 源安装的根目录），否则取仓库根 package.json
-const PKG_PATH = existsSyncE(join(ROOT, 'plugin', 'package.json')) ? join(ROOT, 'plugin', 'package.json') : join(ROOT, 'package.json')
-const PLUGIN_DIR = PKG_PATH === join(ROOT, 'plugin', 'package.json') ? join(ROOT, 'plugin') : ROOT
+// 包清单：仓库根就是插件包本体（plugin/ 已并入根，GitHub 直装时根目录就是入口）
+// 若某天又把源码挪回 plugin/ 子目录，这里会自动回落
+const PKG_PATH = existsSyncE(join(ROOT, 'package.json')) ? join(ROOT, 'package.json') : join(ROOT, 'plugin', 'package.json')
+const PLUGIN_DIR = PKG_PATH === join(ROOT, 'package.json') ? ROOT : join(ROOT, 'plugin')
 const pkg = JSON.parse(readFileSync(PKG_PATH, 'utf8'))
 const iconB64 = readFileSync(join(PLUGIN_DIR, 'icon.svg')).toString('base64')
 
-// 版本来源：source = npm（默认）或 git（把 plugin/ 源码推到仓库，索引指到某个提交）
-//   DSH_SRC_TYPE=git DSH_SRC_COMMIT=<40 位 sha> DSH_SRC_PATH=plugin node make-index.mjs
+// 版本来源：source = npm（默认）或 git（索引指到仓库的某个提交）
+//   DSH_SRC_TYPE=git DSH_SRC_COMMIT=<40 位 sha> node make-index.mjs
+// 仓库根就是插件包本体，所以 git 源不再带 path（DSH 的安装器也不支持子目录）
 const SRC_TYPE = (process.env.DSH_SRC_TYPE || 'npm').trim()
 const SRC_COMMIT = (process.env.DSH_SRC_COMMIT || '').trim()
-const SRC_PATH = (process.env.DSH_SRC_PATH || 'plugin').trim()
+const SRC_PATH = (process.env.DSH_SRC_PATH || '').trim()
 
 const ICON = `data:image/svg+xml;base64,${iconB64}`
 
@@ -41,7 +43,9 @@ const VERSION_SOURCE = (() => {
     console.error(JSON.stringify({ ok: false, error: 'DSH_SRC_TYPE=git 时必须给 DSH_SRC_COMMIT=<40 位 sha>' }))
     process.exit(1)
   }
-  return { type: 'git', url: `https://github.com/${GH || 'example/dsh-douyin-all'}.git`, commit: SRC_COMMIT, path: SRC_PATH }
+  const src = { type: 'git', url: `https://github.com/${GH || 'example/dsh-douyin-all'}.git`, commit: SRC_COMMIT }
+  if (SRC_PATH) src.path = SRC_PATH
+  return src
 })()
 
 const SUMMARY_ZH = '大肥鱼抖音助手：把私信自动回复、作品评论自动回复、刷推荐流挑视频转发、人格与长期记忆、语音回复、观看日报合并成一个 DSH 插件，全部走同一个 Edge 浏览器会话。'
