@@ -31,8 +31,11 @@ jobs:
         run: |
           for f in *.mjs index.js; do node --check "$f"; done
 
+      # 注意：从 Node 22.14 起 `node --test <目录>` 会把目录当模块去 require 并报
+      # Cannot find module '.../tests'，必须显式给 glob 或 .mjs 后缀。
+      # 这里用 glob，因为 Windows 的 cmd 不展开通配符（npm run 走的是 cmd.exe）。
       - name: 单测
-        run: node --test tests/
+        run: node --test "tests/**/*.test.mjs"
 
       - name: 打包体积
         run: |
