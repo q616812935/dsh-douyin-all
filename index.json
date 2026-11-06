@@ -95,48 +95,8 @@
       },
       "versions": [
         {
-          "version": "0.4.1",
-          "publishTimestamp": 1793875253,
-          "source": {
-            "type": "npm"
-          },
-          "engines": {
-            "dsh": ">=0.2.1-rc.2 <0.3.0-0"
-          }
-        },
-        {
-          "version": "0.4.2",
-          "publishTimestamp": 1793959601,
-          "source": {
-            "type": "npm"
-          },
-          "engines": {
-            "dsh": ">=0.2.1-rc.2 <0.3.0-0"
-          }
-        },
-        {
-          "version": "0.4.3",
-          "publishTimestamp": 1793959900,
-          "source": {
-            "type": "npm"
-          },
-          "engines": {
-            "dsh": ">=0.2.1-rc.2 <0.3.0-0"
-          }
-        },
-        {
-          "version": "0.4.4",
-          "publishTimestamp": 1793960236,
-          "source": {
-            "type": "npm"
-          },
-          "engines": {
-            "dsh": ">=0.2.1-rc.2 <0.3.0-0"
-          }
-        },
-        {
-          "version": "0.4.5",
-          "publishTimestamp": 1793968690,
+          "version": "0.4.9",
+          "publishTimestamp": 1793975531,
           "source": {
             "type": "npm"
           },
