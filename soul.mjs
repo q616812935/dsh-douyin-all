@@ -539,19 +539,35 @@ export class Soul {
     for (const k of Object.keys(i.likes)) i.likes[k] = Number(i.likes[k]) * decay
     for (const k of Object.keys(i.dislikes)) i.dislikes[k] = Number(i.dislikes[k]) * decay
     const w = Math.max(0.2, Math.min(3, Number(strength) || 1))
+    // 一个标签只允许待在一个桶里 —— 净胜才算数。
+    // 早期实现是两个独立的 Map 各自累加，结果同一个词在 likes 和 dislikes 里同时长
+    // （线上实测 15 个标签两边都有：剧情 4.7 vs 7.3、历史 1.3 vs 8.4、科普 3.2 vs 2.9…），
+    // tasteScore 里 +likes*2 -dislikes*2.5 互相抵消，判 like/dislike 全看哪边先长起来，随机。
+    // 现在：新证据先扣对立的桶，扣不完的余量才记到自己这边。
     for (const raw of tags) {
       const k = String(raw || '').trim().slice(0, 12)
       if (!k) continue
       if (verdict === 'like') {
-        i.likes[k] = Number(i.likes[k] || 0) + w
-        i.dislikes[k] = Math.max(0, Number(i.dislikes[k] || 0) - w * 0.4) // 观念会变
+        const opposite = Number(i.dislikes[k] || 0)
+        const eat = Math.min(opposite, w)
+        if (eat > 0) i.dislikes[k] = opposite - eat
+        if (opposite - eat < 0.15) delete i.dislikes[k]
+        const rest = w - eat
+        if (rest > 0) i.likes[k] = Number(i.likes[k] || 0) + rest
       } else if (verdict === 'dislike') {
-        i.dislikes[k] = Number(i.dislikes[k] || 0) + w
+        const opposite = Number(i.likes[k] || 0)
+        const eat = Math.min(opposite, w)
+        if (eat > 0) i.likes[k] = opposite - eat
+        if (opposite - eat < 0.15) delete i.likes[k]
+        const rest = w - eat
+        if (rest > 0) i.dislikes[k] = Number(i.dislikes[k] || 0) + rest
       }
     }
     // 分太低的标签清掉，别让画像无限长
     for (const k of Object.keys(i.likes)) if (i.likes[k] < 0.15) delete i.likes[k]
     for (const k of Object.keys(i.dislikes)) if (i.dislikes[k] < 0.15) delete i.dislikes[k]
+    // 收尾：万一还有历史遗留的重叠，按净值归位（幂等，重复跑无害）
+    this._deoverlapInterests(i)
     i.watched.push({
       awemeId: String(item.awemeId || ''),
       desc: String(item.desc || '').slice(0, 80),
@@ -565,6 +581,23 @@ export class Soul {
     return this.getInterests()
   }
 
+  /**
+   * 把历史上重叠的标签按净值归位：「剧情」在 likes 4.7 / dislikes 7.3 同时存在时，
+   * 净 dislikes = 7.3 - 4.7*? …这里用最朴素的净差（两边权重单位已统一），
+   * 净值为正留 dislikes，为负留 likes。只为清理历史脏数据，不会改变新证据的走向。
+   */
+  _deoverlapInterests(i) {
+    for (const k of Object.keys(i.likes || {})) {
+      if (!(k in (i.dislikes || {}))) continue
+      const l = Number(i.likes[k] || 0)
+      const d = Number(i.dislikes[k] || 0)
+      if (d >= l) { delete i.likes[k]; i.dislikes[k] = d - l } else { delete i.dislikes[k]; i.likes[k] = l - d }
+      if (i.dislikes[k] !== undefined && i.dislikes[k] < 0.15) delete i.dislikes[k]
+      if (i.likes[k] !== undefined && i.likes[k] < 0.15) delete i.likes[k]
+    }
+    return i
+  }
+
   /** 记下她对自己口味的描述（模型写的；不传就清空重来）。 */
   setTasteNote(text) {
     this.interests.note = String(text || '').trim().slice(0, 200)
@@ -574,14 +607,25 @@ export class Soul {
   }
 
   /** 把她现在的口味压成一段给模型看的文字（刷流挑视频、评论、聊天都用）。 */
-  tastePrompt() {
+  /**
+   * 把口味画像说成人话，直接进提示词。
+   *
+   * 这里的措辞很关键：早期版本只写「最近爱看：AI、科技」，模型读完会当成**一堆话题标签**，
+   * 于是任何带 #ai 话题的视频它都判 neutral（实测：一条 AI 穿越剧 + 51880 赞209秒，
+   * 它照样说「点进去看看再说」）。改成第一人称 + 明确「ai/数码/科技是你的领域，这类基本都算喜欢」，
+   * 判 like 才稳定。dislike 那边同样点名「影视解说、剧情号」这类她真的不看的。
+   */
+  tastePrompt({ limit = 6, maxDislike = 4 } = {}) {
     const it = this.getInterests()
-    const likes = it.likes.slice(0, 6).map((x) => x.tag)
-    const dislikes = it.dislikes.slice(0, 4).map((x) => x.tag)
+    const likes = it.likes.slice(0, Math.max(0, limit)).map((x) => x.tag).filter(Boolean)
+    const dislikes = it.dislikes.slice(0, Math.max(0, maxDislike)).map((x) => x.tag).filter(Boolean)
     if (!likes.length && !dislikes.length) return ''
     const parts = []
-    if (likes.length) parts.push(`最近爱看：${likes.join('、')}`)
-    if (dislikes.length) parts.push(`不太感兴趣：${dislikes.join('、')}`)
+    if (likes.length) {
+      parts.push(`你自己平时就爱看这些：${likes.join('、')}`)
+      parts.push('只要视频属于上面这些，基本都算你喜欢——那是你的领域，别装作没兴趣')
+    }
+    if (dislikes.length) parts.push(`你不爱看：${dislikes.join('、')}`)
     if (it.note) parts.push(`说起自己口味你会这样讲：${it.note}`)
     return parts.join('；')
   }
@@ -633,10 +677,10 @@ export class Soul {
   get hasDiaryToday() { return this.state.lastDiaryDay === dayKey() }
 
   // ── 主动开口配额 ──
-  canSpeakFirst({ perDay = 8 } = {}) {
+  canSpeakFirst({ perDay = 20 } = {}) {
     const d = dayKey()
     const n = Number(this.state.dailySaid?.[d] || 0)
-    if (n >= perDay) return { ok: false, why: `今天已经开了 ${n} 次口` }
+    if (n >= perDay) return { ok: false, why: `今天已经开了 ${n} 次口（上限 ${perDay}）` }
     // 精力低就少开口
     if (this.state.energy < 0.3 && n >= Math.max(1, Math.floor(perDay / 3))) {
       return { ok: false, why: '困了，不想开口' }
