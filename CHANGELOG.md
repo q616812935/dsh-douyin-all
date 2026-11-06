@@ -3,6 +3,65 @@
 本项目的版本变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.4.9] - 2026-11-06
+
+- `README` 安装一节补上「装完必须确认插件进了 profile 的 loader 行并重启 dsh」，说清 `dsh plugin add`
+  只写 `dsh.profile.bundles`、不写 `cordis.patch.yml`，以及没有 loader 行时「工具能用、面板为空」的现象与自查方法。
+
+## [0.4.8] - 2026-11-06
+
+- 0.4.7 的发包被 npm 拦下：`package.json` 里的版本号没改上去，服务端回
+  `E403 You cannot publish over the previously published versions: 0.4.6`。同一份改动以 **0.4.8** 重新发布。
+- `files` 白名单改成显式列出（`package.json`、文档、图标、每个 `.mjs` 都写进去），
+  避免再出现「自带的 package.json 或某个 .mjs 没进包」这类事故。
+
+## [0.4.7] - 2026-11-06
+
+这一版修的是**装完之后「设置 → 刷抖音」面板仍然可能不出现**的最后一个环节（市场 review 的阻塞项），
+并加了一个手动急停阀。
+
+### 修复
+
+- **profile 装配必须留下 loader 行**：宿主的客户端半区（`dsh-client-modules`）只对 **cordis loader 树里真实存在的行**
+  调 `resolveSource(entry)`，不会去读 `dsh.profile.bundles`。而 `dsh plugin add` 只往
+  `dsh.profile.bundles` 追加条目、**不写 `cordis.patch.yml`** —— 于是「插件已安装、工具已注册、面板永远不出现」。
+  修复后：`cordis.patch.yml` 只保留「身份类」配置（端口），面板与工具跟随 loader 行；同时 README 写明
+  「装完必须把插件加进 profile 的 loader 行（`dsh plugin add` 之后重启一次 dsh）」。
+- 实测证据（DSH 0.2.1-rc.4，全新 home）：loader 行存在时 `__DSH_BOOT__.entries` 里出现
+  `{"id":"dsh-douyin-all","url":"plugins/??dsh-douyin-all/client.js&rev=…","external":["react"]}`，
+  装配后的 application batch 里含 `dsh-douyin-all` 与面板标题 `刷抖音`；loader 行不存在时两者都没有。
+
+### 新增
+
+- **手动暂停**：在状态目录写一个 `PAUSE` 文件（内容为到期时间的 ISO 字符串或毫秒时间戳），
+  到期前自动巡检空转、不分享不评论不 @ 人；私信回复仍照常（事件驱动，不受影响）。
+  `douyin_status` 与 `GET /api/douyin-all/state` 的 `auto.pausedUntil` 会显示暂停到什么时候。
+  给「刚装完想先看看，别让机器自己出门」的场景一个不需要改配置、也不会忘记恢复的急停阀。
+
+## [0.4.6] - 2026-11-06
+
+这一版修的是**装完之后界面出不来**的阻塞问题（市场 review 提出）。0.4.1～0.4.5 全都带着它：
+`package.json` 声明了 `dsh.client` 却没有 `exports`，宿主的 `dsh-client-modules` 直接抛
+`declares dsh.client but exports no "./client" bundle`，客户端半区被整个丢掉 ——
+「设置 → 刷抖音」面板不出现，而首次开通向导就在那个面板里。
+
+### 修复
+
+- **补上 `exports`**：`{".": "./index.js", "./client": "./client.js", "./package.json": "./package.json"}`。
+  宿主只认 `exports["./client"]`（字符串，或带字符串 `default` 的对象），少一个就被判为「没有客户端半区」。
+- **`dsh.client.inject` 去掉 `"slots"`**：`slots` 既不是宿主的冻结静态模块名，也不是 shell 的 roster 行，
+  写在这里没有任何作用（`external` 才是给 `require()` 用的）。客户端里 `require('react')` 走 `external`，不受影响。
+- **`enabled` 默认 `false`**：装完不再自动拉起无头 Edge。用户在设置页打开总开关（或点「跑一轮」）后才起浏览器，
+  并且首次会 1.5 秒后立刻跑第一轮，不用干等 90 秒。
+- **卸载/热重载会关掉浏览器**：disposer 里补 `stopEdge(port)`。Edge 是 detached + unref 拉起的，
+  之前卸载后进程和 9334 端口都留在机器上，下次 `ensureEdge` 连到的是上一代的页面。
+- **`scripts.test` 改成 glob**：`node --test "tests/**/*.test.mjs"`。`node --test tests/`
+  在 Node 22.14+ 会把目录当模块 require，报 `Cannot find module .../tests`（感恩 Node 24 上更明显）。
+
+### 文档
+
+- `LICENSE` 补齐真实版权人与「与三个 MIT 上游的关系」一节，明确派生部分的口径。
+
 ## [0.4.5] - 2026-11-06
 
 ### 修复
