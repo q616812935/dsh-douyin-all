@@ -23,6 +23,8 @@ import * as chat from './chat.mjs'
 import * as comments from './comments.mjs'
 import * as feed from './feed.mjs'
 import * as share from './share.mjs'
+import * as social from './social.mjs'
+import * as learn from './learn.mjs'
 import * as voice from './voice.mjs'
 import * as usage from './usage.mjs'
 import * as report from './report.mjs'
@@ -34,7 +36,7 @@ import { join } from 'node:path'
 import { readState, writeState, appendEvent } from './state.mjs'
 
 /** 一轮的上下文：页面、闸门、灵魂、大脑，都在这里备好。 */
-export async function makeRound({ cfg, soul, brain, guard, log = () => { } }) {
+export async function makeRound({ cfg, soul, brain, guard, log = () => { }, manual = false }) {
   const port = Number(cfg.port || 9334)
   const edge = await ensureEdge({ port, headless: cfg.headless !== false, url: 'https://www.douyin.com/chat', browserPath: cfg.browserPath || '' })
   // 空壳（端口在、没有 page）时补一个常驻页，否则后面开新页会一起失败
@@ -45,7 +47,8 @@ export async function makeRound({ cfg, soul, brain, guard, log = () => { } }) {
     const p = await pruneTargets(edge.port, { max: 3 })
     if (p.ok && p.closed > 0) log('info', `回收了 ${p.closed} 个残留页（原有 ${p.pages} 个）`)
   } catch { /* 回收失败不影响这一轮 */ }
-  return { cdp, port: edge.port, edge, cfg, soul, brain, guard, log }
+  // manual：手动「现在就试一次」，忽略 minGapMinutes（夜间静音与每日配额照旧生效）
+  return { cdp, port: edge.port, edge, cfg, soul, brain, guard, log, manual: !!manual }
 }
 
 /**
@@ -117,6 +120,11 @@ export async function dmRound(round, { force = false } = {}) {
 
     if (!incoming.length) return { ok: true, acted: false, why: '点了会话但没有新的对方消息' }
 
+    // 他聊到什么，她就学着爱看什么（用户要的「根据我的回复兴趣了解我的兴趣点」）。
+    // 先学再回：万一后面模型或发送挂了，学到手的口味也不会丢。
+    const lastShare = (readState('last-share.json', {}) || {}).shares?.[0] || null
+    const leaned = await learn.learnFromDm(t.soul, incoming[incoming.length - 1].text, { peer, lastShare })
+
     const acted = []
     for (const m of incoming.slice(-1)) {
       if (!c.dm.autoReply) break
@@ -143,15 +151,19 @@ export async function dmRound(round, { force = false } = {}) {
       appendEvent({ job: 'dm', ok: true, who: peer, incoming: m.text.slice(0, 100), out: out.text.slice(0, 100), source: out.source })
       acted.push('回了：' + out.text)
       t.soul.bumpAffection(peer, 1)
+      if (leaned.learned.length) acted.push('学到口味：' + leaned.learned.map((x) => (x.verdict === 'like' ? '+' : '-') + x.tag).join(' '))
 
-      // 顺带记一句关于他的话
+      // 顺带记一句关于他的话。
+      // 用 extractFacts 而不是原来的 extractMemories：后者把调情话、情绪、以及对插件本身
+      // 的讨论都抽成「他表示/他说过…」，实测灌了 600+ 条 promise 级噪音，把真正的
+      // 长期记忆挤没了。extractFacts 只留身份/职业/住哪/宠物/喜好/作息这类稳定事实。
       try {
-        const mems = await t.brain.extractMemories({ who: peer, lines: msgs.slice(-6) })
-        for (const mm of mems) {
+        const facts = await t.brain.extractFacts({ who: peer, lines: msgs.slice(-6) })
+        for (const mm of facts) {
           t.soul.remember({ text: mm.text, who: peer, kind: mm.kind || 'fact', importance: mm.importance || 3, evidence: m.text.slice(0, 120) })
         }
-        if (mems.length) acted.push(`记下 ${mems.length} 条记忆`)
-      } catch (e) { t.log('warn', '抽取记忆失败：' + (e?.message || e)) }
+        if (facts.length) acted.push(`记下 ${facts.length} 条关于他的事`)
+      } catch (e) { t.log('warn', '抽取事实失败：' + (e?.message || e)) }
 
       if (c.dm.voiceReply) {
         try {
@@ -203,7 +215,7 @@ export async function commentRound(round, { awemeIds = [], maxWorks = 5, perWork
     const skips = c.skipNicks || []
     // 「只回多久以内的评论」跟下面「作品最长多久」是同一件事的两个口径，
     // 不能再单独写死 48 小时 —— 那会让 7 天内的作品只剩最后两天有回复。
-    const maxAge = Number(c.workMaxAgeDays || 7) * 24
+    const maxAge = (c.workMaxAgeDays ? Number(c.workMaxAgeDays) : 7) * 24
     let posted = 0
     const notes = []
     const now = Date.now()
@@ -211,13 +223,17 @@ export async function commentRound(round, { awemeIds = [], maxWorks = 5, perWork
     for (const id of ids) {
       const w = works.find((x) => x.aweme_id === id) || { aweme_id: id, desc: '' }
       const ageDays = w.create_time ? (now - w.create_time * 1000) / 86400000 : 0
-      if (c.workMaxAgeDays && ageDays > c.workMaxAgeDays) { notes.push(`${id} 太旧，跳过`); continue }
-      const lc = await comments.listComments(p, id, { max: perWork })
+      // 用 Math.ceil 而不是 Math.round：作品正好 7.4 天时 round 成 7，日志会写成
+      // 「太旧（7 天 > 7 天），跳过」这种自相矛盾的话，排查时极具误导性。
+      if (c.workMaxAgeDays && ageDays > c.workMaxAgeDays) { notes.push(`${id} 太旧（${ageDays.toFixed(1)} 天 > ${c.workMaxAgeDays} 天），跳过`); continue }
+      const lc = await comments.listComments(p, id, { max: perWork, selfNick })
       if (!lc.ok) { notes.push(`${id} 读评论失败`); continue }
       usage.bump('comment.scanned', { aweme: id, n: lc.items.length })
       const cand = comments.pickReplies(
         lc.items.map((x) => ({ ...x, time: x.time })),
-        { selfNick, skipNicks: skips, maxAgeHours: maxAge, now, limit: Math.max(1, Number(c.maxPerRound || 3)) },
+        // workMaxAgeDays 为 0/未设时不做时间卡：maxAgeHours 传 0 会被 pickReplies
+        // 当成「0 小时 = 全部过期」，所以显式传 Infinity 表示不卡。
+        { selfNick, skipNicks: skips, maxAgeHours: maxAge > 0 ? maxAge : Infinity, now, limit: Math.max(1, Number(c.maxPerRound || 3)) },
       )
       for (const it of cand.picked) {
         if (posted >= Number(c.maxPerRound || 3)) break
@@ -265,16 +281,50 @@ export async function commentRound(round, { awemeIds = [], maxWorks = 5, perWork
 //   5. 只有「真的想说」才发声，且主动发声必须过 activeWindow() 这一关。
 
 /** 主动发声前的统一闸门：免打扰时段 + 最小间隔 + 每日上限。 */
-function canSpeakNow(t, { perDay = 8 } = {}) {
-  const q = t.cfg.dm?.quiet || {}
-  const w = activeWindow({ ...q, __lastProactiveAt: t.soul.state?.lastSpeakAt || 0 })
+// ignoreGap：手动/临时触发（设置页「刷一次并评论」、guarded 单步试跑）不算「主动开口」，
+// 否则试一次就把后面 30 分钟的自动行动全挡住了。夜间静音和每日配额仍然算数。
+/**
+ * 「现在能不能主动开口」——夜间静音 + 每日额度 + 同一类动作的最小间隔。
+ *
+ * ⚠️ 这里曾经用 dm.quiet.minGapMinutes(30) 去卡**所有**主动动作，而它读的是
+ *    soul.state.lastSpeakAt —— 那个字段私信回复也会写。于是「回了他一句私信」
+ *    就会把接下来的分享 / @ / 评论全部推后 30 分钟，而轮询间隔只有 90 秒：
+ *    线上实测 20 轮里 19 轮的 feed 都停在「距离上次主动开口才 28 分钟（要求间隔 ≥30 分钟）」，
+ *    一天真正能分享/@/评论的机会被压到个位数，用户看到的就是「她根本不会分享视频」。
+ *
+ * 现在拆成两个独立的概念：
+ *   - 夜间静音 / 每日主动次数上限：仍然算总账（对端感受得到的那层节奏）；
+ *   - 最小间隔：按**动作类型**分别记（feed.proactiveGapMinutes，只看上一次
+ *     share / mention / comment 的时间，私信聊天不影响）。
+ * 手动触发（t.manual，来自设置页「现在就试一次」）跳过间隔与夜间静音，但每日额度照样生效。
+ */
+function canSpeakNow(t, { perDay = 8, ignoreGap = false, kind = 'feed' } = {}) {
+  const q = { ...(t.cfg.dm?.quiet || {}) }
+  const c = t.cfg.feed || {}
+  // activeWindow 只管「夜间静音」这一件事。它的 minGapMinutes 原本是给私信聊天用的
+  // 防刷屏间隔，这里必须清掉 —— 否则 dm.quiet.minGapMinutes(30) 会继续夹在
+  // 「回了一句私信」和「接下来分享视频」之间，实测每轮都停在
+  // 「距离上次主动开口才 3 分钟（要求间隔 ≥30 分钟）」，一整天只出得去几次。
+  q.minGapMinutes = 0
+  if (ignoreGap) q.__lastProactiveAt = 0
+  const w = activeWindow({ ...q, __lastProactiveAt: ignoreGap ? 0 : (t.soul.state?.lastSpeakAt || 0) })
   if (!w.ok) return w
   const quota = t.soul.canSpeakFirst({ perDay })
   if (!quota.ok) return quota
+  if (!ignoreGap) {
+    const gapMin = Number(c.proactiveGapMinutes ?? 12)
+    if (gapMin > 0) {
+      const last = Number((t.soul.state?.lastProactiveByKind || {})[kind] || 0)
+      const passed = (Date.now() - last) / 60000
+      if (last && passed < gapMin) {
+        return { ok: false, code: 'too_soon', why: '上一次主动' + (kind === 'feed' ? '分享/评论' : '开口') + '才 ' + Math.round(passed) + ' 分钟（要求间隔 ≥' + gapMin + ' 分钟，还要等 ' + Math.ceil(gapMin - passed) + ' 分钟）' }
+      }
+    }
+  }
   return { ok: true, used: quota.used, perDay: quota.perDay }
 }
 
-export async function feedRound(round, { count = 6, share: doShare = null, mention: doMention = null } = {}) {
+export async function feedRound(round, { count = 0, share: doShare = null, mention: doMention = null, comment: doComment = null } = {}) {
   const t = round
   const c = t.cfg.feed || {}
   if (!c.enabled) return { ok: true, picked: null, why: '刷流已关闭' }
@@ -283,147 +333,182 @@ export async function feedRound(round, { count = 6, share: doShare = null, menti
   const taste = t.soul.tastePrompt()
   const tasteMem = t.brain.tasteFromMemory ? t.brain.tasteFromMemory(6) : []
   const tasteAll = [taste, tasteMem.length ? tasteMem.join('；') : ''].filter(Boolean).join('｜')
+  const watched = t.soul.getInterests().watched || []
 
-  return await onPage(t, async (p) => {
-    const r = await feed.pickWithContext(p, {
-      count: Number(count || c.count || 6),
-      limit: 3,                       // 多拿两条候选让模型挑，别只给一条
-      dislike: c.dislike || [],
-      like: c.like || [],
-      tasteTags: t.soul.getInterests().likes.map((x) => x.tag),
-      tasteScore: (tags) => t.soul.tasteScore(tags),
-    })
-    if (!r.ok) {
-      usage.bump('feed.browsed', { ok: 0, why: r.code || r.why })
-      return { ok: false, picked: null, why: r.why || r.code || '这轮没有想说的' }
-    }
-    usage.bump('feed.browsed', { ok: 1, n: r.scanned })
+  const wantShare = doShare === null ? !!c.shareToPeer : !!doShare
+  const wantMention = doMention === null ? !!c.mentionPeer : !!doMention
+  const wantComment = doComment === null ? !!c.commentPeers : !!doComment
+  // 允许刷几下。以前一轮只刷一次，撞上 dislike/neutral 就整轮什么都没做，
+  // 而推荐流一次只回 2~6 条、还总夹着旧视频，所以「一整天什么都不发」很平常。
+  const maxBrowses = Math.max(1, Math.min(6, Number(c.browsesPerRound || 3)))
+  const out = {
+    ok: true,
+    picked: null,
+    reviews: [],       // 这一轮看过的每一条（含结论）
+    share: undefined,
+    mention: undefined,
+    comment: undefined,
+    acted: 0,
+  }
+  let lastWhy = '没刷到合适的东西'
+  let chosenItem = null
 
-    // ── 让她真的看一遍：抽标签 → 凭口味表态 ──
-    let chosen = null
-    // pickWithContext 回来的候选列表字段叫 cands（不是 candidates），
-    // 兜底也不能拿 null 去 slice——先过滤掉空值再切。
-    const pool = (Array.isArray(r.cands) && r.cands.length ? r.cands : [r.picked]).filter(Boolean)
-    for (const cand of pool.slice(0, 3)) {
-      const an = await t.brain.analyzeVideo({
-        desc: cand.desc,
-        author: cand.author?.nick || '',
-        durationMs: cand.duration,
-        comments: cand === r.picked ? r.comments : [],
-      }).catch(() => ({ ok: false, tags: [] }))
-      const jd = await t.brain.judgeVideo({
-        summary: an.summary || '',
-        tags: an.tags || [],
-        desc: cand.desc,
-        taste: tasteAll,
-      }).catch(() => ({ ok: false, verdict: 'neutral', strength: 1, reaction: '' }))
-      // 口味立刻长一点：明显喜欢的记强，明显的 dislike 也记
-      try {
-        t.soul.learn({
+  for (let browse = 1; browse <= maxBrowses; browse++) {
+    const noActionWanted = !wantShare && !wantMention && !wantComment
+    if (noActionWanted) break
+
+    const r = await onPage(t, async (p) => {
+      const rr = await feed.pickWithContext(p, {
+        // 一次刷多一点：只刷 6 条时，反复刷就会反复抽到同一批（实测同一批里既有 4 月的老视频，
+        // 也有已经分享过的同一条），挑来挑去还是那几条，看起来就是「卡住了」。
+        count: Number(count || c.count || 10),
+        limit: 3,                       // 多拿两条候选让模型挑，别只给一条
+        dislike: c.dislike || [],
+        like: c.like || [],
+        tasteTags: t.soul.getInterests().likes.map((x) => x.tag),
+        tasteScore: (tags) => t.soul.tasteScore(tags),
+        freshHours: Number(c.freshHours || 0),
+        recalled: watched,
+        recallHours: Number(c.recallHours || 72),
+        // 自己的作品不该被「挑来跟人说」；热评素材也别混进自己的评论
+        selfNick: String(t.cfg.owner || '').trim(),
+        selfUid: String((t.ownerAt && t.ownerAt.uid) || ''),
+      })
+      if (!rr.ok) return { rr, cands: [], comments: rr.comments || [] }
+
+      // ── 让她真的看一遍：抽标签 → 凭口味表态 ──
+      // pickWithContext 回来的候选列表字段叫 cands（不是 candidates），
+      // 兜底也不能拿 null 去 slice —— 先过滤掉空值再切。
+      const pool = (Array.isArray(rr.cands) && rr.cands.length ? rr.cands : [rr.picked]).filter(Boolean)
+      const reviewed = []
+      for (const cand of pool.slice(0, 3)) {
+        const an = await t.brain.analyzeVideo({
+          desc: cand.desc,
+          author: cand.author?.nick || '',
+          durationMs: cand.duration,
+          comments: cand === rr.picked ? rr.comments : [],
+        }).catch(() => ({ ok: false, tags: [] }))
+        const jd = await t.brain.judgeVideo({
+          summary: an.summary || '',
           tags: an.tags || [],
-          verdict: jd.verdict === 'like' ? 'like' : jd.verdict === 'dislike' ? 'dislike' : 'neutral',
-          strength: jd.strength || 1,
-          item: { awemeId: cand.aweme_id, desc: cand.desc },
+          desc: cand.desc,
+          taste: tasteAll,
+        }).catch(() => ({ ok: false, verdict: 'neutral', strength: 1, reaction: '' }))
+        // 口味立刻长一点：明显喜欢的记强，明显的 dislike 也记
+        try {
+          t.soul.learn({
+            tags: an.tags || [],
+            verdict: jd.verdict === 'like' ? 'like' : jd.verdict === 'dislike' ? 'dislike' : 'neutral',
+            strength: jd.strength || 1,
+            item: { awemeId: cand.aweme_id, desc: cand.desc },
+          })
+        } catch (e) { t.log('warn', '更新口味失败：' + (e?.message || e)) }
+        reviewed.push({
+          cand, an, jd,
+          line: {
+            job: 'browse', ok: true, aweme: cand.aweme_id,
+            summary: String(an.summary || '').slice(0, 60),
+            tags: an.tags || [], verdict: jd.verdict, strength: jd.strength || 1,
+            reaction: String(jd.reaction || '').slice(0, 40),
+          },
         })
-      } catch (e) { t.log('warn', '更新口味失败：' + (e?.message || e)) }
-      appendEvent({
-        job: 'browse', ok: true, aweme: cand.aweme_id,
-        summary: String(an.summary || '').slice(0, 60),
-        tags: an.tags || [], verdict: jd.verdict, strength: jd.strength || 1,
-        reaction: String(jd.reaction || '').slice(0, 40),
-      })
-      // 第一条「表态为 like」的就选它；都没有就退回第一条候选
-      if (!chosen) chosen = { cand, an, jd }
-      if (jd.verdict === 'like') { chosen = { cand, an, jd }; break }
-      await sleep(1200)
-    }
-    if (!chosen) return { ok: false, picked: null, why: '没挑出可看的视频' }
-
-    const { cand, an, jd } = chosen
-    usage.bump('video.picked', { aweme: cand.aweme_id })
-    appendEvent({ job: 'feed', ok: true, aweme: cand.aweme_id, desc: String(cand.desc || '').slice(0, 80), verdict: jd.verdict })
-
-    const out = {
-      ok: true,
-      picked: cand,
-      comments: r.comments,
-      summary: an.summary,
-      tags: an.tags,
-      verdict: jd.verdict,
-      reaction: jd.reaction,
-      taste: t.soul.getInterests().likes.slice(0, 5),
-      why: `${feed.describe(cand)}${an.summary ? ' → ' + an.summary : ''}（${jd.verdict}）`,
-    }
-
-    // ── 动作一：分享给账号持有人 ──
-    const wantShare = doShare === null ? !!c.shareToPeer : !!doShare
-    if (wantShare && jd.verdict !== 'dislike') {
-      const gate = canSpeakNow(t, { perDay: Number(t.cfg.dm?.perDay || 40) })
-      if (!gate.ok) return { ...out, share: { ok: false, skipped: true, why: gate.why } }
-      const peer = String(t.cfg.peer || '').trim()
-      if (!peer) return { ...out, share: { ok: false, why: '没配置对端昵称' } }
-      const pitch = await t.brain.pickPitch({ who: peer, videoDesc: feed.describe(cand), comments: r.comments })
-      const text = (pitch.text ? pitch.text + '\n' : '') + api.workUrl(cand.aweme_id)
-      const g = t.guard.checkDm({ text, to: peer })
-      if (!g.ok) return { ...out, share: { ok: false, why: g.why } }
-      const s = await share.shareLink(p, { awemeId: cand.aweme_id, peer, text })
-      if (s.ok) {
-        const rec = t.guard.reserve('dm', { text, to: peer, source: 'feed-share' })
-        t.guard.confirm(rec)
-        t.soul.markSpoke()
-        t.soul.state.lastSpeakAt = Date.now()
-        t.soul.saveState()
-        usage.bump('video.shared', { aweme: cand.aweme_id })
-        appendEvent({ job: 'share', ok: true, aweme: cand.aweme_id, via: 'link' })
+        await sleep(900)
       }
-      out.share = s
+      // 「喜欢」的优先；这条视频上没能做出站动作（如评论区加载不出来）就换下一条。
+      reviewed.sort((a, b) => (b.jd.verdict === 'like' ? 1 : 0) - (a.jd.verdict === 'like' ? 1 : 0))
+      return { rr, cands: reviewed, comments: rr.comments || [] }
+    })
+    if (!r || !r.rr || !r.rr.ok) {
+      lastWhy = (r && r.rr && (r.rr.why || r.rr.code)) || '这轮没有想说的'
+      usage.bump('feed.browsed', { ok: 0, why: lastWhy })
+      break
     }
+    usage.bump('feed.browsed', { ok: 1, n: r.rr.scanned })
+    if (!r.cands.length) { lastWhy = '没挑出可看的视频'; break }
+    out.reviews.push(...r.cands.map((x) => x.line))
 
-    // ── 动作二：在别人视频的评论区 @ 账号持有人 ──
-    // 用户的诉求：「不会在别的视频评论区下 @ 我」。
-    // 默认关（公开评论会被人看到），开了才做；且只对「她自己真的喜欢」的视频发。
-    const wantMention = doMention === null ? !!c.mentionPeer : !!doMention
-    if (wantMention && jd.verdict === 'like') {
+    // 要在别人的视频下 @ 人，得先知道「账号持有人」的 uid —— 昵称不能直接当提及用。
+    // 查一次就够（uid 不会变），缓存在 round 上，同一轮里 @ 和评论共用。
+    if (wantMention && !t.ownerAt) {
       const owner = String(t.cfg.owner || '').trim()
-      if (!owner) return { ...out, mention: { ok: false, why: '没配置账号持有人昵称' } }
-      const gate = canSpeakNow(t, { perDay: Number(t.cfg.dm?.perDay || 40) })
-      if (!gate.ok) return { ...out, mention: { ok: false, skipped: true, why: gate.why } }
-      const target = `${cand.aweme_id}:mention:${owner}`
-      const g1 = t.guard.checkComment({ awemeId: cand.aweme_id, target, source: 'mention' })
-      if (!g1.ok) return { ...out, mention: { ok: false, why: g1.why } }
-      const txt = await t.brain.commentMention({
-        who: owner,
-        videoSummary: an.summary,
-        videoDesc: cand.desc,
-        reaction: jd.reaction,
-        tags: an.tags,
-      })
-      if (!txt.ok) {
-        t.guard.markFailed(g1.row, txt.why || 'no-text')
-        return { ...out, mention: { ok: false, why: txt.why || '模型没给出话' } }
+      if (owner) {
+        // 走 social.resolveOwner：先读 state/owner-id.json 缓存（命中就一次接口都不打），
+        // 没命中才开页查 —— 先 myWorks 的 author（最准，不会被同名号干扰），
+        // 再退到搜索里昵称完全一致的那个，成功后落盘。
+        // 早先把这段直接写在 feedRound 里，遇到「新开页还没 warmup 好」就间歇性失败，
+        // 线上表现是每隔几轮冒一次「没搜到完全一致的用户，这轮不 @ 人」，@ 就凭空少一轮。
+        if (typeof social.cachedOwner === 'function') t.ownerAt = social.cachedOwner(t)
+        if (!t.ownerAt) {
+          await onPage(t, async (p2) => {
+            t.ownerAt = await social.resolveOwner(t, p2)
+          }).catch((e) => t.log('warn', '查账号持有人 uid 失败：' + (e?.message || e)))
+        }
+        if (!t.ownerAt) t.log('warn', '按昵称「' + owner + '」暂时解析不出 uid（页还没就绪？），这轮先不 @ 人')
       }
-      const g2 = t.guard.checkComment({ awemeId: cand.aweme_id, target, text: txt.text, source: 'mention', reserve: false, skipPending: true })
-      if (!g2.ok) {
-        t.guard.markFailed(g1.row, g2.why)
-        return { ...out, mention: { ok: false, why: '内容被拦：' + g2.why } }
-      }
-      const posted = await comments.postComment(p, { awemeId: cand.aweme_id, text: txt.text })
-      if (!posted.ok) {
-        t.guard.markFailed(g2.row || g1.row, posted.code)
-        usage.bump('comment.failed', { aweme: cand.aweme_id, code: posted.code, job: 'mention' })
-        return { ...out, mention: { ok: false, why: posted.code } }
-      }
-      t.guard.confirm(g2.row || g1.row, { cid: posted.cid, text: txt.text })
-      t.soul.markSpoke()
-      t.soul.state.lastSpeakAt = Date.now()
-      t.soul.saveState()
-      usage.bump('comment.mention', { aweme: cand.aweme_id, cid: posted.cid })
-      appendEvent({ job: 'mention', ok: true, aweme: cand.aweme_id, cid: posted.cid, out: txt.text })
-      out.mention = { ok: true, cid: posted.cid, text: txt.text }
     }
 
-    return out
-  })
+    const gate = canSpeakNow(t, { perDay: Number(c.proactivePerDay || 8), ignoreGap: !!t.manual, kind: 'feed' })
+    if (!gate.ok) { lastWhy = gate.why; break }
+
+    // 这一刷里，按「喜欢优先」逐条试；**每条视频只做一个出站动作**。
+    // 实测在同一页面对同一条视频连发两次 comment/publish，第二次会被服务端静默丢掉
+    // （HTTP 200 但空 body / 回执没有 cid），所以「又分享又 @ 又评论」做不到。
+    for (const item of r.cands) {
+      const { cand, an, jd } = item
+      if (!chosenItem) chosenItem = item
+      if (jd.verdict !== 'like') continue
+      let did = ''
+      if (wantShare && out.share === undefined) {
+        const sr = await onPage(t, (p) => social.shareToPeer(t, p, { cand, summary: an.summary, reaction: jd.reaction, topComments: r.comments, tags: an.tags }))
+        out.share = sr
+        if (sr && sr.ok) did = 'share'
+      }
+      if (!did && wantMention && out.mention === undefined) {
+        const mr = await onPage(t, (p) => social.mentionOwner(t, p, { cand, summary: an.summary, tags: an.tags, reaction: jd.reaction }))
+        out.mention = mr
+        if (mr && mr.ok) did = 'mention'
+        await social.breathe(1500)
+      }
+      if (!did && wantComment && out.comment === undefined) {
+        const cr = await onPage(t, (p) => social.commentOnVideo(t, p, { cand, summary: an.summary, tags: an.tags, reaction: jd.reaction, topComments: r.comments }))
+        out.comment = cr
+        if (cr && cr.ok) did = 'comment'
+      }
+      if (did) {
+        out.picked = cand
+        out.summary = an.summary
+        out.tags = an.tags
+        out.verdict = jd.verdict
+        out.reaction = jd.reaction
+        out.acted += 1
+        t.soul.state.lastSpeakAt = Date.now()
+        // 按动作类型各记一个时间戳：canSpeakNow 的「最小间隔」只看这一类，
+        // 不再让一句私信回复把后面的分享/@ 全堵死。
+        t.soul.state.lastProactiveByKind = { ...(t.soul.state.lastProactiveByKind || {}), feed: Date.now() }
+        appendEvent({ job: 'feed', ok: true, aweme: cand.aweme_id, desc: String(cand.desc || '').slice(0, 80), verdict: jd.verdict, did })
+        break
+      }
+    }
+    // 三种动作都试过了（不管成没成）就收工，否则继续下一刷
+    const allTried = (out.share !== undefined || !wantShare) && (out.mention !== undefined || !wantMention) && (out.comment !== undefined || !wantComment)
+    if (out.acted > 0 || allTried) break
+    await sleep(2000)
+  }
+
+  if (!out.picked && chosenItem) {
+    out.picked = chosenItem.cand
+    out.summary = chosenItem.an?.summary
+    out.tags = chosenItem.an?.tags
+    out.verdict = chosenItem.jd?.verdict
+    out.reaction = chosenItem.jd?.reaction
+  }
+  if (out.picked) usage.bump('video.picked', { aweme: out.picked.aweme_id })
+  out.taste = t.soul.getInterests().likes.slice(0, 5)
+  out.why = out.picked
+    ? feed.describe(out.picked) + (out.summary ? ' → ' + out.summary : '') + '（' + out.verdict + '）'
+    : lastWhy
+  if (out.picked && out.acted === 0) appendEvent({ job: 'feed', ok: true, aweme: out.picked.aweme_id, desc: String(out.picked.desc || '').slice(0, 80), verdict: out.verdict, did: 'none' })
+  return out
 }
 
 // ── 日记 / 日报 ─────────────────────────────────────────────────────────────
@@ -478,9 +563,9 @@ export async function runRound({ cfg, soul, brain, guard, log = () => { }, parts
       if (want.comments) out.parts.comments = await safe('comments', () => commentRound(round), log)
     }
     if (want.feed) {
-      // 刷流本身不对外，但「转发/评论 @ 人」是出站动作，锁死时必须显式关掉。
+      // 刷流本身不对外，但「分享/评论/@ 人」是出站动作，锁死时必须显式关掉。
       out.parts.feed = await safe('feed', () => (locked
-        ? feedRound(round, { share: false, mention: false })
+        ? feedRound(round, { share: false, mention: false, comment: false })
         : feedRound(round)), log)
     }
     if (want.diary) out.parts.diary = await safe('diary', () => diaryRound(round), log)
