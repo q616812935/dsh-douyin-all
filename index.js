@@ -88,6 +88,21 @@ function log(level, msg) {
   try { console.log(`[dsh-douyin-all] ${level}: ${msg}`) } catch { /* ignore */ }
 }
 
+// ── 暂停开关 ────────────────────────────────────────────────────────────────
+// 手动暂停：在 <home>/PAUSE 里写一个到期时间 ISO 或毫秒时间戳，到期前自动巡检
+// 一律空转（私信回复仍走事件驱动，不受影响）。给「装完想先看看，别让机器自己
+// 出门」的用户一个不需要改配置、也不会忘记恢复的急停阀。
+const PAUSE_FILE = (h) => join(h, 'PAUSE')
+function pausedUntil(h) {
+  try {
+    const raw = readFileSync(PAUSE_FILE(h), 'utf8').trim()
+    if (!raw) return null
+    const ms = /^\d+$/.test(raw) ? Number(raw) : Date.parse(raw)
+    if (!Number.isFinite(ms)) return null
+    return ms > Date.now() ? ms : null
+  } catch { return null }
+}
+
 // ── 自动调度 ────────────────────────────────────────────────────────────────
 // 为什么不是 setInterval：一轮可能跑 1–3 分钟，setInterval 会叠加。
 // 这里用「跑完再安排下一次」的单链 setTimeout，进程死掉也不留 zombie。
@@ -112,6 +127,12 @@ function stuck(s) {
 async function tick(s) {
   if (s.auto.running && !stuck(s)) return
   if (stuck(s)) log('warn', '上一轮已卡住超过 15 分钟，强制开始新的轮询')
+  const hold = pausedUntil(stateRoot())
+  if (hold) {
+    log('info', '手动暂停中（到 ' + new Date(hold).toISOString() + ' 前不主动出门）')
+    try { scheduleNext(s) } catch { /* ignore */ }
+    return
+  }
   s.auto.running = true
   s.auto.runningSince = Date.now()
   try {
@@ -140,8 +161,10 @@ function statusSnapshot(s) {
   const cfg = s.load()
   const snap = s.soul.snapshot()
   const hc = stateRoot()
+  const hold = pausedUntil(hc)
   const auto = {
     enabled: !!cfg.enabled,
+    pausedUntil: hold ? new Date(hold).toISOString() : null,
     running: s.auto.running,
     nextAt: s.auto.next ? new Date(s.auto.next).toISOString() : null,
     lastAt: s.auto.lastAt,
@@ -150,7 +173,7 @@ function statusSnapshot(s) {
   return {
     ok: true,
     text: [
-      `抖音自动陪伴：${cfg.enabled ? '已开启' : '已暂停'}`,
+      `抖音自动陪伴：${cfg.enabled ? '已开启' : '已暂停'}${hold ? `（手动暂停到 ${new Date(hold).toISOString()}）` : ''}`,
       `抖音号：${cfg.owner || '未设置'}；对端：${cfg.peer || '未设置'}`,
       `人格：${snap.persona?.name || '内置'}（记忆 ${snap.memories?.length ?? 0} 条，好感 ${snap.affection?.[cfg.peer] ?? '-'}）`,
       `模型：${cfg.model?.provider ? cfg.model.provider + '/' + cfg.model.model : '跟随宿主设置'}`,
