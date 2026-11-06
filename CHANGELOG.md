@@ -3,6 +3,95 @@
 本项目的版本变更记录。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)。
 
+## [0.4.5] - 2026-11-06
+
+### 修复
+
+- **设置页丢了「首次开通」向导**：0.4.2 的 `client.js` 是从一条较早的分支取的，
+  把 0.3.x 加的四步开通向导（登录 / 认出自己的号 / 选跟谁聊 / 完成）整块覆盖没了，
+  同时也没有新的「刷一次并评论」按钮。这一版把两边合起来：向导 + 刷流自检都在。
+- `package.json` 的 `files` 补上 `learn.mjs`、`social.mjs`（漏打会让全新安装
+  `ERR_MODULE_NOT_FOUND`，和 0.4.0 漏 `setup.mjs` 是同一类事故）。
+
+## [0.4.4] - 2026-11-06
+
+### 修复
+
+- `soul.canSpeakFirst()` 的默认参数还写死着 `perDay = 8`，调用方没传时就按 8 算，
+  和 0.4.3 改的 `feed.proactivePerDay: 20` 对不上。默认值同步成 20。
+- 额度用尽时的提示补上上限值（`今天已经开了 8 次口（上限 20）`），不再让人误以为是坏了。
+
+## [0.4.3] - 2026-11-06
+
+### 变更
+
+- `feed.proactivePerDay` 默认 8 → **20**。0.4.2 上线第一天实测：一轮最多只出一个动作、
+  两次之间至少隔 12 分钟，8 次在下午就用完了，之后整轮都停在「今天已经开了 8 次口」——
+  对「陪伴型」体感明显不够。间隔仍然是 12 分钟，不会变成刷屏。
+
+## [0.4.2] - 2026-11-06
+
+这一版补齐「她只会发文字私信」的那几件事：会在私信里分享视频、会在别人的视频下面 @ 你、
+会随机挑感兴趣的视频评论，并从你的回复里学口味。
+
+### 新增
+
+- **在别人的视频下真 @ 对端**：`api.publishComment` 支持 `text_extra`，形状必须是
+  `[{start: 0, end: 1 + 昵称长度, user_id, type: 0}]`。**多带 `to_user_id` 或 `sec_uid`
+  会让服务端返回 HTTP 200 空 body，整条评论作废**，所以 `cleanTextExtra()` 只放行白名单字段。
+  拿不到 `uid` 时退化成纯文本 `@昵称`（服务端也会识别），不瞎编 id。
+- **随机评论别人的视频**：`social.commentOnVideo`，发之前必须先 `visitComments()` 读一次
+  评论区（原因见下方「修复」）。
+- **私信分享视频**：`social.shareToPeer`，默认走「一句话 + 视频链接」（`shareLink`），
+  分享卡片被服务端静默丢弃，只留作可选。
+- **从对端的回复里学口味**：`learn.learnFromDm` 按「品类词 × 情绪词」判极性，
+  `我不喜欢看游戏直播了` → `游戏/dislike`、`多来点AI的` → `AI/like`，并把反馈回挂到
+  上一次分享的那条视频的标签上。刻意**不**写长期记忆，免得变成一堆调情承诺。
+- 新接口 `GET /social`、`POST /try-social {what:'share'|'mention'|'comment'}`；工具
+  `douyin_comment` 新增 `action='social'`。
+- 配置新增 `feed.{commentPeers,freshHours,recallHours,proactivePerDay,browsesPerRound,proactiveGapMinutes}`、
+  `dm.{maxPerHour,minGapSeconds,shareWithVideo}`、`comments.mentionPerHour/mentionPerDay`。
+
+### 修复
+
+- **刷流一轮只刷一次**：抖音推荐流 `count=10` 实测只回 2 条，还常是几天前的老视频，
+  过滤后一条候选都不剩，于是整轮什么都不发。改成一轮最多补刷 `browsesPerRound`（默认 3）次、
+  按 `aweme_id` 去重累积；仍然没有正分候选时兜底取最高分的一批交给模型判断。
+- **@ 人与普通评论共用一个配额**：回了几条评论之后 @ 人就被「这一小时已经回了 N 条」拦住。
+  拆成独立桶（`mentionPerHour` / `mentionPerDay`）。
+- **主动动作的最小间隔误用了私信间隔**：原来用 `dm.quiet.minGapMinutes`（30 分钟）卡所有主动动作，
+  而它读的 `lastSpeakAt` 私信回复也会写——回一句私信就把分享/@/评论全推后半小时，
+  轮询间隔却只有 90 秒，一天根本发不出几次。改成按动作类型分别记时间戳
+  （`lastProactiveByKind`），阈值 `feed.proactiveGapMinutes`（默认 12）。
+- **发评论前不读评论区会得到 `status_code 2053`**：同一视频先 `commentList` 读到 `total>0`
+  再发就是 0；`total=0` 的视频永远发不出去，直接跳过。
+- **同一页面对同一条视频连发两次评论，第二次被服务端静默丢弃**：每条视频每轮只做一个出站动作。
+- **判断「这条评论是不是我发的」不能用 `is_author`**：自己发的评论在 `comment/list` 里
+  `is_author` 不是 1、`uid` 还常缺失，导致把自己的评论当成别人的反复去回。新增
+  `comments.isMineComment(c, selfNick)` 一律按 `user.nickname` 判。
+- **默认 `workMaxAgeDays: 7` 让「回自己作品的评论」永久空转**：作品只要超过 7 天就全被跳过。
+  默认改 **0（不按时间卡）**，`pickReplies` 的 `maxAgeHours` 传 `Infinity` 而不是 0
+  （0 会被当成「全部过期」）。
+- **口味画像的 like / dislike 两个桶会同时命中同一个标签**（实测 15 个标签同时出现在两边，
+  而打分是 `+likes*2 -dislikes*2.5` 互相抵消）。改成新证据先扣对立的桶，余量才记到自己这边，
+  并加一次幂等的 `_deoverlapInterests()` 归位。
+- **事件日志里看不到失败原因**：`summarize` 原来按整个子对象的 JSON 长度一刀切，
+  `round.parts.feed` 一超 600 字符就整块变成字符串 `{…}`。现在诊断字段
+  （`ok/why/code/did/skipped/error/cid/aweme`）**在任意深度都保留**，含诊断字段的子对象也继续下钻。
+- **分享文案被切成半句**：「…我心里堵得慌。你说，你会不会也那」。`cleanReply` 超长时改为
+  按句号 > 逗号的顺序回退到最近的句读，实在没有标点才补省略号。
+- `api.searchUser` 直接透传原始响应，导致 `exactUser` 拿不到 `uid`（每轮都打
+  「按昵称没搜到完全一致的用户」）。改成读 `user_list || data.user_list`、摊平 `user_info`；
+  新增 `api.myUser(p)` 从自己作品列表的 `author` 取（搜索里同名号太多，不能靠搜索），
+  结果缓存到 `state/owner-id.json`。
+- 推荐流里混着几个月前的老视频：`feed.score()` 新增新鲜度惩罚，`pick()` 对「最近刷过」的
+  视频扣分，别老挑同一条。
+
+### 测试
+
+- 新增 `tests/regress.test.mjs`（12 条），每一条对应一个线上真实翻车过的故障；
+  合计 89 条单测。
+
 ## [0.4.1] - 2026-11-05
 
 ### 修复
