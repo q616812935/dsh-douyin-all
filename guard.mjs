@@ -23,6 +23,8 @@ import { dirname } from 'node:path'
 export const DEFAULT_POLICY = {
   maxChars: 60,            // 单条评论字数上限
   perHour: 6,              // 每小时评论数
+  mentionPerHour: 3,       // 每小时在别人视频下 @ 账号持有人的次数（与普通评论分开算）
+  mentionPerDay: 8,
   perDay: 30,              // 每天评论数
   dedupeHours: 168,        // 同一目标 7 天内不回第二次
   dmPerHour: 20,           // 私信额度（私信本来就该比评论宽松）
@@ -226,18 +228,24 @@ export class Guard {
       if (dup) return { ok: false, code: 'duplicate_text', why: '同一作品下说过一模一样的话' }
     }
 
+    // 额度按「动作类型」分开算：在别人视频下的评论、在视频下 @ 账号持有人，
+    // 是两件不同的社交动作，混在一个桶里会互相把额度吃光（实测手动测了 6 次评论之后，
+    // @ 人就再也发不出去了，报「这一小时已经回了 6 条」，而那其实一条评论都没多回）。
+    const bucket = source === 'mention' ? 'mention' : 'comment'
     const hourAgo = now - 3600000
     const dayAgo = now - 86400000
-    if (this.ledger.countSince('comment', hourAgo) >= p.perHour) {
-      return { ok: false, code: 'quota_hour', why: `这一小时已经回了 ${p.perHour} 条` }
+    const perHour = bucket === 'mention' ? Number(p.mentionPerHour ?? p.perHour) : p.perHour
+    const perDay = bucket === 'mention' ? Number(p.mentionPerDay ?? p.perDay) : p.perDay
+    if (this.ledger.countSince(bucket, hourAgo) >= perHour) {
+      return { ok: false, code: 'quota_hour', why: `这一小时已经发了 ${perHour} 条${bucket === 'mention' ? '@' : '评论'}` }
     }
-    if (this.ledger.countSince('comment', dayAgo) >= p.perDay) {
-      return { ok: false, code: 'quota_day', why: `今天已经回了 ${p.perDay} 条` }
+    if (this.ledger.countSince(bucket, dayAgo) >= perDay) {
+      return { ok: false, code: 'quota_day', why: `今天已经发了 ${perDay} 条${bucket === 'mention' ? '@' : '评论'}` }
     }
 
     // 「距上一条」只看真正发出去的（confirmed）。自己刚占的 pending 不是上一条，
     // 否则两段式校验里的第二次调用会把刚占位的自己当成间隔 0 秒而误杀。
-    const gap = now - this.ledger.lastConfirmedAt('comment')
+    const gap = now - this.ledger.lastConfirmedAt(bucket)
     if (gap < p.minGapMs) {
       return { ok: false, code: 'too_soon', why: `距上一条才 ${Math.round(gap / 1000)} 秒` }
     }
@@ -246,7 +254,7 @@ export class Guard {
     const soft = ROBOT_PATTERNS.filter(re => re.test(body)).map(re => String(re))
 
     // 判过就立刻占位 —— 即使后面发送失败/进程挂掉，也留下「这条可能已发」的痕迹
-    const row = reserve ? this.reserve('comment', { awemeId, target, text: body || text, source }) : null
+    const row = reserve ? this.reserve(bucket, { awemeId, target, text: body || text, source }) : null
     return { ok: true, soft, row }
   }
 
