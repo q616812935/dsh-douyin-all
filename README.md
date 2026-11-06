@@ -28,9 +28,17 @@
 dsh plugin --profile web add dsh-douyin-all
 ```
 
-装完在 DSH 里打开 **设置 → 抖音自动陪伴** 走首次开通。
+装完之后**必须确认插件进了 profile 的 loader 行，并重启一次 dsh**，否则「设置 → 抖音自动陪伴」面板不会出现：
 
+- `dsh plugin add` 只把包名追加到 profile `package.json` 的 `dsh.profile.bundles`，**不会**写 `cordis.patch.yml`。
+  而 DSH 的客户端半区（`dsh-client-modules`）只对 **cordis loader 树里真实存在的行**装载界面 ——
+  没有 loader 行时，工具能用、HTTP 接口能用，但设置面板永远是空的。
+- 检查办法：profile 目录里的 `cordis.patch.yml` 应当有一行
+  `- insert: [{ id: douyin-all, name: 'dsh-douyin-all' }]`（本包自带的 `cordis.patch.yml`
+  就是这一行，`dsh.profile.bundles` 里登记了包名时它会被自动叠加）。核对之后重启 dsh。
 > 若 `dsh plugin add` 没有真正写入依赖（在部分版本上会静默失败），可在 profile 目录里直接 `pnpm add dsh-douyin-all`，再把包名加进 `package.json` 的 `dsh.profile.bundles`。
+
+装完在 DSH 里打开 **设置 → 抖音自动陪伴** 走首次开通。
 
 ### 依赖
 
