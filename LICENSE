@@ -2,7 +2,7 @@ PROPRIETARY SOFTWARE LICENSE (UNLICENSED)
 All Rights Reserved.
 
 Package:  dsh-douyin-all
-Copyright (c) 2026 dsh-douyin-all authors. All rights reserved.
+Copyright (c) 2026 q616812935 <https://github.com/q616812935>. All rights reserved.
 
 This software and its accompanying files (the "Software") are proprietary and
 confidential. They are NOT open source. The Software is not licensed under the
@@ -42,18 +42,44 @@ grants any right to use the Software other than as expressly stated below.
    in it to the copyright holder, unless a separate written agreement says
    otherwise.
 
-4. THIRD-PARTY COMPONENTS
+4. THIRD-PARTY COMPONENTS AND DERIVED PORTIONS
 
-   Portions of the Software were informed by the following MIT-licensed projects.
-   Their notices are reproduced here as required by their licenses; the terms of
-   this file apply to the combined Software as distributed by the copyright
-   holder.
+   The Software is a clean-room rewrite that learned from the behaviour of the
+   following MIT-licensed projects. The upstream MIT notices are reproduced
+   below as their licenses require, and apply to those upstream components.
 
-   - dsh-douyin-watch (MIT)  Copyright (c) its authors
-   - dsh-fish-soul (MIT)     Copyright (c) its authors
-   - dsh-douyin-browser-local (MIT)  Copyright (c) its authors
+   - dsh-douyin-watch (MIT)            Copyright (c) 2026 its respective authors
+   - dsh-fish-soul (MIT)               Copyright (c) 2026 its respective authors
+   - dsh-douyin-browser-local (MIT)    Copyright (c) 2026 its respective authors
 
-   The MIT License text applicable to those upstream components:
+   SCOPE — which parts are which:
+
+   a. The upstream project files themselves, and any portion of this package that
+      is a direct copy or a straightforward adaptation of them, remain available
+      to you under the MIT License reproduced below. The MIT grants on those
+      portions are NOT withdrawn, narrowed, or made conditional by this file:
+      MIT is a perpetual, irrevocable grant, and nothing here can revoke rights
+      you already received under it. In particular you may copy, modify, merge,
+      publish, distribute, sublicense and sell those MIT-covered portions on
+      MIT terms, provided you keep the copyright and permission notices.
+
+   b. The new work added by the copyright holder of this package — the merged
+      architecture, the Edge/CDP session manager (`edge.mjs`), the atomic
+      outbound guard (`guard.mjs`), the taste/mention/share pipelines
+      (`social.mjs`, `learn.mjs`, `feed.mjs`), the first-run wizard
+      (`setup.mjs`), the settings client (`client.js`), and the rest of the
+      package that is not derived from the projects in (a) — is proprietary and
+      subject to sections 1, 2, 3, 5, 6 and 7 above.
+
+   c. Where (a) and (b) are inseparable inside one file, the file is offered
+      under this license for the (b) parts, and you additionally retain every
+      right MIT gives you over the (a) parts, including the right to reuse them
+      in your own MIT projects.
+
+   d. To exercise the (b) rights commercially, or to publish a modified version
+      of the whole package, obtain a separate written license per section 7.
+
+   The MIT License text applicable to the upstream components in (a):
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
