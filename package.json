@@ -1,25 +1,41 @@
 {
   "name": "dsh-douyin-all",
-  "version": "0.1.0",
-  "description": "抖音自动陪伴：私信自动回复、作品评论自动回复、刷推荐流挑视频转发，带人格与长期记忆、语音与观看日报。单一边缘会话、统一出站闸门。",
+  "version": "0.4.1",
+  "description": "抖音自动陪伴插件 for DeepSeek Harness：私信/评论自动回复、刷流挑视频、人格与长期记忆、语音、观看日报。Proprietary.",
   "type": "module",
   "main": "index.js",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "files": [
     "index.js",
-    "*.mjs",
+    "api.mjs",
+    "brain.mjs",
+    "chat.mjs",
+    "comments.mjs",
+    "edge.mjs",
+    "feed.mjs",
+    "guard.mjs",
+    "loop.mjs",
+    "report.mjs",
+    "share.mjs",
+    "soul.mjs",
+    "state.mjs",
+    "setup.mjs",
+    "usage.mjs",
+    "voice.mjs",
     "client.js",
     "cordis.patch.yml",
     "icon.svg",
     "README.md",
     "LICENSE",
-    "locale/"
+    "locale/",
+    "tests/",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "dsh",
     "dsh-plugin",
+    "deepseek-harness",
     "douyin",
-    "抖音",
     "automation"
   ],
   "engines": {
@@ -49,8 +65,22 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/q616812935/dsh-douyin-all.git",
-    "directory": "plugin"
+    "url": "git+https://github.com/q616812935/dsh-douyin-all.git"
   },
-  "homepage": "https://github.com/q616812935/dsh-douyin-all"
+  "homepage": "https://github.com/q616812935/dsh-douyin-all#readme",
+  "dependencies": {},
+  "author": "dsh-douyin-all authors",
+  "contributors": [
+    "q616812935"
+  ],
+  "bugs": {
+    "url": "https://github.com/q616812935/dsh-douyin-all/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "test": "node --test tests/"
+  }
 }
