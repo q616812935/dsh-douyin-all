@@ -76,6 +76,7 @@ export const DEFAULTS = {
     maxPerDay: 120,           // 一天最多发几条私信（含自动回复与主动开口）
     minGapSeconds: 8,         // 两条私信之间至少隔几秒，避免刷屏节奏
     // 主动开口的频率与免打扰（只管「她主动找你」，不影响「你来了就回」）
+    shareWithVideo: true,     // 闲聊时也可能顺手把刚刷到的好视频发给她（受 quiet 与额度约束）
     quiet: {
       nightMuted: true,       // 夜间一律不主动发消息
       nightFrom: '22:00',     // 从几点开始安静
@@ -94,7 +95,8 @@ export const DEFAULTS = {
     perHour: 6,
     perDay: 30,
     dedupeHours: 168,
-    workMaxAgeDays: 7,
+    workMaxAgeDays: 0,        // 只回自己的作品里「发布不超过这么多天」的评论；0 = 不按时间卡
+                              // （老默认是 7，结果自己 5 个作品全被判「太旧，跳过」，这条链彻底空转）
     skipNicks: [],            // 不回哪些昵称的评论；默认不设，由用户自己加
     bannedWords: [],          // 额外的禁止词；代码里另有一份内置的站外引导/广告拦截
     allowOutsideLink: false,  // 是否允许回复里带站外链接（默认否）
@@ -107,6 +109,14 @@ export const DEFAULTS = {
     shareToPeer: false,       // 挑到好玩的视频要不要转发给对端（默认关）
     mentionPeer: false,       // 在自己喜欢的别人作品下 @ 账号持有人（公开评论，默认关）
     tasteLearning: true,      // 每刷一条都用模型看懂并更新自己的口味
+    commentPeers: true,       // 在「别的」视频下面随机留一条评论（用户要的就是这个）
+    freshHours: 72,           // 见超过这么多小时的视频降权（推荐流里混着几个月前的老视频）
+    recallHours: 72,          // 这么小时内刷过/表态过的视频，再刷到就降权，别老挑同一条
+    proactivePerDay: 20,      // 每天最多主动对外几次（分享/评论/@ 共用这一份额度）
+                              // 老默认 8 实测偏少：一轮最多出一个动作、间隔 12 分钟，
+                              // 一天 8 次对「陪伴型」体感是不够的。
+    proactiveGapMinutes: 12,  // 两次主动动作之间至少隔几分钟（只按这一类动作算，私信聊天不影响）
+    browsesPerRound: 3,       // 一轮里最多刷几下推荐流（撞到不喜欢就再刷，别整轮空转）
     like: [],                 // 加分关键词；默认空，让口味从实际观看里长出来
     dislike: [],              // 减分关键词；默认空
   },
@@ -241,18 +251,48 @@ export async function runOnce(name, fn) {
   }
 }
 
-/** 事件日志里不适合塞整个接口响应，截断一下。 */
-function summarize(r) {
+/**
+ * 事件日志里不适合塞整个接口响应，截断一下。
+ *
+ * 这里的唯一目的是「事后能看出为什么没发」。老实现只留一层，而且是按整个子对象的
+ * JSON 长度一刀切：round.result.parts.feed 只要超过 600 字符就整块变成字符串 "{…}"，
+ * 于是线上查「这轮 feed 为什么没出站」时，日志里只有一个 {…}，什么线索都没有。
+ *
+ * 现在的规则：
+ *  - 诊断字段（ok/why/code/did/skipped/error…）**在任何深度都保留**，只截长度；
+ *  - 其它字段最多下钻两层，再深就折成 "[]"/"{…}"；
+ *  - 每一层都限定字符预算，保证一条事件不会把 events.jsonl 撑爆。
+ */
+const KEEP_KEYS = new Set(['ok', 'why', 'code', 'did', 'skipped', 'error', 'reason', 'err', 'cid', 'aweme'])
+const DIAG_LEN = 300
+function summarize(r, depth = 0) {
   if (r == null) return null
-  if (typeof r !== 'object') return String(r).slice(0, 300)
+  if (typeof r !== 'object') return String(r).slice(0, DIAG_LEN)
+  if (Array.isArray(r)) return `[${r.length}]`
   const out = {}
+  let budget = 1200
   for (const [k, v] of Object.entries(r)) {
-    if (v == null || typeof v === 'number' || typeof v === 'boolean') out[k] = v
-    else if (typeof v === 'string') out[k] = v.slice(0, 200)
-    else if (Array.isArray(v)) out[k] = `[${v.length}]`
-    else out[k] = '{…}'
+    const keep = KEEP_KEYS.has(k)
+    if (v == null || typeof v === 'number' || typeof v === 'boolean') { out[k] = v; continue }
+    if (typeof v === 'string') { out[k] = v.slice(0, keep ? DIAG_LEN : 160); budget -= out[k].length; continue }
+    if (Array.isArray(v)) { out[k] = `[${v.length}]`; continue }
+    if (typeof v === 'object') {
+      // 诊断字段永远下钻；含诊断字段的子对象也下钻（parts.feed.share 这种第三层
+      // 恰恰是整个 @ / 分享链路唯一的线索来源，不能因为深度就被折掉）；
+      // 其余字段只下钻两层，且要有字符预算。
+      const hasDiag = Object.keys(v).some((kk) => KEEP_KEYS.has(kk))
+      if (!keep && !hasDiag && depth >= 2) { out[k] = '{…}'; continue }
+      const sub = summarize(v, depth + 1)
+      const text = JSON.stringify(sub) || '{}'
+      if (keep || text.length <= 400 || budget > 0) { out[k] = sub; budget -= text.length }
+      else out[k] = '{…}'
+      continue
+    }
+    out[k] = '{…}'
   }
   return out
 }
 
-export { sleep }
+// summarize 导出给单测用：它是「事后能不能查出为什么没发」的唯一保险
+//（re-export 会让 package 的 ESM 导出表变大，但体积可以忽略）。
+export { sleep, summarize }
