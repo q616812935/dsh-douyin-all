@@ -1,12 +1,24 @@
 {
   "name": "dsh-douyin-all",
-  "version": "0.4.5",
+  "version": "0.4.9",
   "description": "抖音自动陪伴插件 for DeepSeek Harness：私信/评论自动回复、刷流挑视频、人格与长期记忆、语音、观看日报。Proprietary.",
   "type": "module",
   "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
   "license": "UNLICENSED",
   "files": [
     "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "package.json",
     "api.mjs",
     "brain.mjs",
     "chat.mjs",
@@ -24,14 +36,8 @@
     "setup.mjs",
     "usage.mjs",
     "voice.mjs",
-    "client.js",
-    "cordis.patch.yml",
-    "icon.svg",
-    "README.md",
-    "LICENSE",
     "locale/",
-    "tests/",
-    "CHANGELOG.md"
+    "tests/"
   ],
   "keywords": [
     "dsh",
@@ -57,9 +63,6 @@
     },
     "client": {
       "platform": "web",
-      "inject": [
-        "slots"
-      ],
       "external": [
         "react"
       ]
@@ -83,6 +86,6 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "test": "node --test tests/"
+    "test": "node --test \"tests/**/*.test.mjs\""
   }
 }
