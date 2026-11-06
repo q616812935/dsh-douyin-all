@@ -131,7 +131,7 @@ export async function apiGet(pageSend, path, params = {}, { timeoutMs = 20000, r
 }
 
 /** POST 表单接口（发评论、删评论都是这个形态）。 */
-export async function apiPost(pageSend, path, body = {}, { timeoutMs = 20000 } = {}) {
+export async function apiPost(pageSend, path, body = {}, { timeoutMs = 20000, retries = 2 } = {}) {
   const qs = new URLSearchParams(Object.entries(commonQs({})).map(([k, v]) => [k, String(v)]))
   const url = `${path}?${qs.toString()}`
   const payload = new URLSearchParams(Object.entries(body).map(([k, v]) => [k, String(v ?? '')])).toString()
@@ -153,7 +153,15 @@ export async function apiPost(pageSend, path, body = {}, { timeoutMs = 20000 } =
   }
   const v = r.v
   if (r.s === 'err' || !v) throw new Error('页面 POST 失败：' + (r.v || 'unknown'))
-  if (!v.json) throw new Error(`POST 非 JSON（HTTP ${v.http}）：${v.head}`)
+  if (!v.json) {
+    // 空 body + 200：抖音的「还没准备好」，等 1.5 秒再发一次；有正文的错误（403/验证码）不重试
+    const bodyEmpty = !String(v.head || '').trim()
+    if (bodyEmpty && retries > 0) {
+      await new Promise((ok) => setTimeout(ok, 1500))
+      return apiPost(pageSend, path, body, { timeoutMs, retries: retries - 1 })
+    }
+    throw new Error(`POST 非 JSON（HTTP ${v.http}）：${v.head}`)
+  }
   return { ...v.json, __http: v.http, __bytes: v.bytes, __path: path }
 }
 
@@ -214,12 +222,43 @@ export async function commentReplies(p, { itemId, commentId, cursor = 0, count =
   }
 }
 
-/** 发评论 / 回评论。replyId 有值就是回某条（楼中楼）。 */
-export const publishComment = (p, { awemeId, text, replyId = '' }) =>
+/**
+ * 发评论 / 回评论。replyId 有值就是回某条（楼中楼）。
+ *
+ * text_extra 是「真正的 @」：实测（2026-11-06）只有把被 @ 的 user_id 塞进 text_extra 才会
+ * 在服务端变成一个真实的提及（回读同一条评论的 text_extra 里带着 user_id/type:0/sec_uid）。
+ * 两条实测坑：
+ *   · 带上 `to_user_id`（点赞给谁）会让 publish 返回 200 但**空 body**，整次发送作废；
+ *   · 只给 {start,end,user_id,type:0} 就够，sec_uid 由服务端补上，自己填反而可能被拒。
+ * 所以这里只接受「干净的」extra：start/end/user_id/type(+话题三件套)，其余字段一律剥掉。
+ */
+export function cleanTextExtra(list = []) {
+  const out = []
+  for (const e of Array.isArray(list) ? list : []) {
+    if (!e || typeof e !== 'object') continue
+    if (Number(e.type || 0) === 5) {
+      out.push({ start: Number(e.start) || 0, end: Number(e.end) || 0, type: 5, search_text: String(e.search_text || '') })
+      continue
+    }
+    const uid = e.user_id != null && e.user_id !== '' ? String(e.user_id) : ''
+    if (!uid) continue
+    out.push({
+      start: Math.max(0, Number(e.start) || 0),
+      end: Math.max(0, Number(e.end) || 0),
+      user_id: uid,
+      type: 0,
+      hashtag_name: '',
+      hashtag_id: '',
+    })
+  }
+  return out
+}
+
+export const publishComment = (p, { awemeId, text, replyId = '', textExtra = [] }) =>
   apiPost(p, '/aweme/v1/web/comment/publish/', {
     aweme_id: awemeId,
     text,
-    text_extra: '[]',
+    text_extra: JSON.stringify(cleanTextExtra(textExtra)),
     aweme_type: '0',
     channel_id: '0',
     city: '',
@@ -235,6 +274,75 @@ export const deleteComment = (p, { awemeId, cid }) =>
 /** 互动通知。注意：本号实测 /aweme/v1/web/notice/ 返回 status_code:5，不一定可用，调用方要容错。 */
 export const notice = (p, { count = 20, cursor = 0 } = {}) =>
   apiGet(p, '/aweme/v1/web/notice/', { count, cursor, is_new_notice: '1' })
+
+/**
+ * 按昵称找人（拿 uid / sec_uid）。
+ *
+ * 用途：@ 人必须带 user_id，而设置页里用户填的是昵称。实测 `/aweme/v1/web/discover/search/`
+ * 在号上是可用的（`search_channel=aweme_user_web`），返回的昵称可能不精确（搜「爱睡觉的kevin」
+ * 也会返回「Kevin爱睡觉」），所以调用方必须自己核对昵称是否完全一致。
+ */
+/**
+ * 按昵称搜用户。返回统一成 {ok, users:[{nick, uid, sec_uid}], user_list(原样保留，兼容老调用)}。
+ * 注意：抖音的返回有两层包装（data.user_list 或顶层 user_list），每项又是 {user_info:{...}}，
+ * 以前这里直接把原始响应丢给调用方，结果 ok 永远是 undefined、exactUser 只能在残留字段上瞎猜。
+ */
+export async function searchUser(p, keyword, { count = 10 } = {}) {
+  let r = null
+  try {
+    r = await apiGet(p, '/aweme/v1/web/discover/search/', {
+      keyword, search_channel: 'aweme_user_web', search_source: 'normal_search',
+      query_correct_type: 1, is_filter_search: 0, offset: 0, count,
+    }, { timeoutMs: 15000, retries: 0 })
+  } catch (e) {
+    return { ok: false, users: [], user_list: [], err: String(e?.message || e) }
+  }
+  if (!r || r.__err || r.__timeout) return { ok: false, users: [], user_list: [], err: String(r?.__err || r?.__head || 'timeout').slice(0, 120) }
+  const raw = (Array.isArray(r.user_list) && r.user_list)
+    || (Array.isArray(r.data?.user_list) && r.data.user_list)
+    || []
+  const users = []
+  for (const it of raw) {
+    const u = it?.user_info || it || {}
+    const uid = u.uid || u.user_id || u.sec_uid_owner
+    if (!uid) continue
+    users.push({ nick: String(u.nickname || u.nick || ''), uid: String(uid), sec_uid: String(u.sec_uid || '') })
+  }
+  return { ok: true, users, user_list: raw }
+}
+
+/**
+ * 拿「我自己」的 uid。
+ * 抖音的用户搜索接口对「自己」既不精确也不稳定（实测搜自己昵称命中不了自己），
+ * 所以真正的来源只有一个：自己的作品列表里 author 字段 —— 那一定是本号。
+ * （/aweme/v1/web/im/user/info/ 返回 data:null，/im/conversation/list/ 返回空，都指望不上。）
+ */
+export async function myUser(p) {
+  try {
+    const r = await myWorks(p, { count: 1 })
+    const a = (Array.isArray(r?.aweme_list) && r.aweme_list[0]?.author) || null
+    if (!a || !a.uid) return null
+    return { nick: String(a.nickname || ''), uid: String(a.uid), sec_uid: String(a.sec_uid || '') }
+  } catch { return null }
+}
+
+/** 从 searchUser 的返回里挑出昵称完全一致的那个。 */
+export function exactUser(r, nick) {
+  const want = String(nick || '').trim()
+  if (!want) return null
+  // 新格式 {users:[...]} 与老格式 {user_list:[{user_info}]} 都吃
+  if (Array.isArray(r?.users)) {
+    const hit = r.users.find((u) => String(u.nick || '').trim() === want && u.uid)
+    return hit ? { uid: String(hit.uid), sec_uid: String(hit.sec_uid || ''), nick: want } : null
+  }
+  for (const it of (r?.user_list || [])) {
+    const u = it.user_info || it
+    if (String(u.nickname || '').trim() !== want) continue
+    if (!u.uid) continue
+    return { uid: String(u.uid), sec_uid: String(u.sec_uid || ''), nick: want }
+  }
+  return null
+}
 
 /** 当前登录账号。cookie 里 type=im 的页面能拿到；失败就返回 null 而不是抛。 */
 export async function whoAmI(p) {
@@ -310,6 +418,9 @@ export function pickComment(c) {
     digg: Number(c.digg_count || 0),
     // 作者标识——只回别人、不回自己
     is_author: Number(c.user?.is_author || 0) === 1,
+    // 服务端认定的 @（有 user_id 才是真提及；正文里的 @昵称 不算）
+    text_extra: Array.isArray(c.text_extra) ? c.text_extra : [],
+    label: String(c.label_text || ''),
   }
 }
 
