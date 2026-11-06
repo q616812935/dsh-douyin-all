@@ -119,6 +119,8 @@ async function tick(s) {
     const r = await runOnce('round', () => loop.runRound({
       cfg, soul: s.soul, brain: s.brain, guard: s.guard, log, parts: null,
     }))
+    // feedRound 自己会在一轮里刷好几下（browsesPerRound），直到做出一个出站动作，
+    // 所以这里不再额外补刷 —— 上一版那 40 秒延时补刷把整轮拖成十几分钟。
     s.auto.lastAt = new Date().toISOString()
     s.auto.lastResult = r
   } catch (e) {
@@ -215,6 +217,14 @@ function toolWatch() {
       const lines = [only ? `只跑了 ${only}` : '跑了一整轮']
       for (const [k, v] of Object.entries(r.parts || {})) {
         lines.push(`· ${k}：${v?.ok ? 'ok' : '失败'} ${v?.why || ''}${v?.posted ? ` 发了 ${v.posted} 条` : ''}${v?.ms ? `（${v.ms}ms）` : ''}`)
+        // 刷流这一段里藏着三件对外的事：分享 / 在别人视频下 @ 人 / 在别人视频下评论
+        if (k === 'feed') {
+          for (const [label, key] of [['分享', 'share'], ['@ 人', 'mention'], ['评论', 'comment']]) {
+            const a = v?.[key]
+            if (!a) continue
+            lines.push(`   · ${label}：${a.ok ? '已发出' + (a.cid ? `（cid ${a.cid}）` : '') : (a.skipped ? '跳过：' : '失败：') + (a.why || a.code || '')}`)
+          }
+        }
       }
       return { ok: true, text: lines.join('\n'), parts: r.parts }
     },
@@ -283,7 +293,7 @@ function toolDm() {
 function toolComment() {
   return defineTool({
     name: 'douyin_comment',
-    description: '读抖音评论，或者在评论区回一句。action=read 读某条作品（不给 aweme_id 就是自己最近的）的评论；action=reply 回某条评论（必须给 aweme_id 和 cid 与 text）；action=auto 按规则自动回一批新评论（走闸门）。',
+    description: '读抖音评论，或者在评论区说一句。action=read 读某条作品（不给 aweme_id 就是自己最近的）的评论；action=reply 回某条评论（必须给 aweme_id 和 cid 与 text）；action=auto 按规则自动回一批新评论（走闸门）；action=social 刷一次推荐流，挑一条她真感兴趣的别人的视频，在下面留一条评论（不会 @ 任何人）。',
     parameters: {
       action: { type: 'string', description: 'read / reply / auto。' },
       aweme_id: { type: 'string', description: '作品 id（从链接 /video/<id> 里取）。' },
@@ -313,6 +323,17 @@ function toolComment() {
         if (action === 'auto') {
           const r = await loop.commentRound(round, {})
           return { ok: !!r.ok, text: `自动评论：${r.posted || 0} 条。${r.why || ''}`, comments: [] }
+        }
+        if (action === 'social') {
+          const r = await loop.feedRound(round, { share: false, mention: false, comment: true })
+          const c = r.comment || {}
+          return {
+            ok: !!r.ok,
+            text: r.ok
+              ? `挑了「${r.why || ''}」，评论 ${c.ok ? '已发出（cid ' + c.cid + '）' : (c.skipped ? '跳过：' : '失败：') + (c.why || c.code || '')}`
+              : '没挑到合适的视频：' + (r.why || ''),
+            comments: [],
+          }
         }
         return await loop.onPage(round, async (pg) => {
           let id = String(args.aweme_id || '').trim()
@@ -742,6 +763,38 @@ function installApi(ctx, s) {
           usage: usage.range(days),
           diary: s.soul.readDiary({ limit: 7 }),
         })
+      }
+      if (path === '/try-social' && req.method === 'POST') {
+        // 「现在就试一次」：只跑刷流那一段，强制打开评论别人的视频，但**不改配置**
+        // （用户点一下 ≠ 同意从此以后一直自动评论）。
+        if (s.auto.running && !stuck(s)) return sendJson(res, 429, { ok: false, error: '上一轮还在跑，等它跑完' })
+        const cfgNow = s.load()
+        if (setup.outboundLocked(cfgNow)) return sendJson(res, 409, { ok: false, locked: true, error: outboundBlockedText(cfgNow) })
+        if (!cfgNow.feed?.enabled) return sendJson(res, 400, { ok: false, error: '先把「刷视频」打开' })
+        s.auto.running = true
+        s.auto.runningSince = Date.now()
+        try {
+          const b = await readBody(req).catch(() => ({}))
+          const what = String(b.what || 'comment').trim().toLowerCase()
+          const want = what === 'share' ? { share: true, mention: false, comment: false }
+            : what === 'mention' ? { share: false, mention: true, comment: false }
+            : { share: false, mention: false, comment: true }
+          const r = await runOnce('try-social', async () => {
+            const round = await loop.makeRound({ cfg: s.load(), soul: s.soul, brain: s.brain, guard: s.guard, log, manual: true })
+            try { return await loop.feedRound(round, want) } finally { loop.endRound(round) }
+          })
+          if (!r.ok) return sendJson(res, 500, { ok: false, error: r.error || r.why || '跑失败' })
+          return sendJson(res, 200, { ok: true, feed: r.result })
+        } finally { s.auto.running = false; s.auto.runningSince = 0 }
+      }
+      if (path === '/social' && req.method === 'GET') {
+        // 分享 / 在别人视频下 @ 人 / 评论别人的视频 —— 这三件事的流水，
+        // 设置页用它显示「她今天在外面说了什么」，也方便排查为什么没发出去。
+        const n = Math.min(200, Math.max(1, Number(url.searchParams.get('n') || 40)))
+        const jobs = new Set(['share', 'mention', 'comment', 'taste.learned', 'taste.feedback'])
+        const rows = readEvents(5000).filter((e) => jobs.has(e.job) && e.ok !== false).slice(-n)
+        const lastShare = (readState('last-share.json', {}) || {}).shares || []
+        return sendJson(res, 200, { ok: true, events: rows, lastShare })
       }
       if (path === '/health' && req.method === 'GET') {
         const cfg = s.load()
