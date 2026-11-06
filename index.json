@@ -64,7 +64,7 @@
         "en": "Douyin (TikTok China) companion for DeepSeek Harness: auto-reply to DMs, auto-reply to comments on your own and others' works, browse the For-You feed and share picks, persona + long-term memory, TTS voice replies and daily viewing reports — all through one shared Edge session.",
         "zh": "大肥鱼抖音助手：把私信自动回复、作品评论自动回复、刷推荐流挑视频转发、人格与长期记忆、语音回复、观看日报合并成一个 DSH 插件，全部走同一个 Edge 浏览器会话。"
       },
-      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0Ij4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxNCIgZmlsbD0iIzBmMTcyYSIvPgogIDwhLS0g6bG86Lqr77ya5aSn6IKl6bG8IC0tPgogIDxwYXRoIGQ9Ik04IDMzIEMgMTQgMjAsIDM0IDE4LCA0MiAzMCBDIDM0IDQ0LCAxNCA0NiwgOCAzMyBaIiBmaWxsPSIjMjJkM2VlIiBzdHJva2U9IiMwZTc0OTAiIHN0cm9rZS13aWR0aD0iMiIvPgogIDwhLS0g5bC+5be0IC0tPgogIDxwYXRoIGQ9Ik00MiAzMCBMNTcgMjEgTDUzIDMzIEw1NyA0NSBaIiBmaWxsPSIjMzhiZGY4IiBzdHJva2U9IiMwZTc0OTAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogIDwhLS0g55y8552b77ya5ZOo5YW15Zyo55yLIC0tPgogIDxjaXJjbGUgY3g9IjE5IiBjeT0iMzAiIHI9IjQuMiIgZmlsbD0iIzBmMTcyYSIvPgogIDxjaXJjbGUgY3g9IjIwLjIiIGN5PSIyOC44IiByPSIxLjUiIGZpbGw9IiNlMGYyZmUiLz4KICA8IS0tIOiFrue6oiAtLT4KICA8ZWxsaXBzZSBjeD0iMjciIGN5PSIzNyIgcng9IjQiIHJ5PSIyLjQiIGZpbGw9IiNmYjcxODUiIG9wYWNpdHk9IjAuNTUiLz4KICA8IS0tIOawlOazoe+8muWcqOivtOivnSAtLT4KICA8Y2lyY2xlIGN4PSI1MCIgY3k9IjEyIiByPSIzIiBmaWxsPSIjYTVmM2ZjIiBvcGFjaXR5PSIwLjkiLz4KICA8Y2lyY2xlIGN4PSI1NyIgY3k9IjciIHI9IjIiIGZpbGw9IiNhNWYzZmMiIG9wYWNpdHk9IjAuNiIvPgo8L3N2Zz4K",
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0Ij4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxNCIgZmlsbD0iIzBmMTcyYSIvPgogIDwhLS0g6bG86LqrIC0tPgogIDxwYXRoIGQ9Ik04IDMzIEMgMTQgMjAsIDM0IDE4LCA0MiAzMCBDIDM0IDQ0LCAxNCA0NiwgOCAzMyBaIiBmaWxsPSIjMjJkM2VlIiBzdHJva2U9IiMwZTc0OTAiIHN0cm9rZS13aWR0aD0iMiIvPgogIDwhLS0g5bC+5be0IC0tPgogIDxwYXRoIGQ9Ik00MiAzMCBMNTcgMjEgTDUzIDMzIEw1NyA0NSBaIiBmaWxsPSIjMzhiZGY4IiBzdHJva2U9IiMwZTc0OTAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogIDwhLS0g55y8552b77ya5ZOo5YW15Zyo55yLIC0tPgogIDxjaXJjbGUgY3g9IjE5IiBjeT0iMzAiIHI9IjQuMiIgZmlsbD0iIzBmMTcyYSIvPgogIDxjaXJjbGUgY3g9IjIwLjIiIGN5PSIyOC44IiByPSIxLjUiIGZpbGw9IiNlMGYyZmUiLz4KICA8IS0tIOiFrue6oiAtLT4KICA8ZWxsaXBzZSBjeD0iMjciIGN5PSIzNyIgcng9IjQiIHJ5PSIyLjQiIGZpbGw9IiNmYjcxODUiIG9wYWNpdHk9IjAuNTUiLz4KICA8IS0tIOawlOazoe+8muWcqOivtOivnSAtLT4KICA8Y2lyY2xlIGN4PSI1MCIgY3k9IjEyIiByPSIzIiBmaWxsPSIjYTVmM2ZjIiBvcGFjaXR5PSIwLjkiLz4KICA8Y2lyY2xlIGN4PSI1NyIgY3k9IjciIHI9IjIiIGZpbGw9IiNhNWYzZmMiIG9wYWNpdHk9IjAuNiIvPgo8L3N2Zz4K",
       "author": "dsh-douyin-all authors",
       "homepage": "https://github.com/q616812935/dsh-douyin-all",
       "repository": {
@@ -95,8 +95,8 @@
       },
       "versions": [
         {
-          "version": "0.1.1",
-          "publishTimestamp": 1793862311,
+          "version": "0.4.1",
+          "publishTimestamp": 1793875253,
           "source": {
             "type": "npm"
           },
