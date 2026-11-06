@@ -1,0 +1,57 @@
+{
+  "meta": {
+    "title": "Douyin",
+    "description": "Douyin auto companion: auto-replies to DMs and post comments, browses the feed and picks videos, with persona and long-term memory."
+  },
+  "section": {
+    "title": "Douyin Companion",
+    "intro": "It watches DMs and comments in the background, speaks through the host model and remembers what was talked about."
+  },
+  "tabs": {
+    "basic": "Basics",
+    "dm": "Direct messages",
+    "comments": "Comments",
+    "feed": "Feed",
+    "diag": "Diagnostics & report"
+  },
+  "fields": {
+    "model": "DSH model",
+    "followHost": "Follow host settings (recommended)",
+    "peer": "Peer nickname",
+    "owner": "My Douyin nickname",
+    "persona": "Persona card",
+    "dmEnabled": "Auto-reply to DMs",
+    "speakFirst": "Let it start the conversation",
+    "perDay": "Max starts per day",
+    "replyDelay": "Delay before replying (ms)",
+    "voiceReply": "Send a voice note after the reply",
+    "commentSelf": "Reply to comments on my own posts",
+    "commentOthers": "Reply to comments on other people's posts",
+    "maxChars": "Max characters per comment",
+    "perHour": "Max replies per hour",
+    "perDayComment": "Max replies per day",
+    "feedEnabled": "Browse the feed",
+    "feedCount": "Videos per round",
+    "shareToPeer": "Forward picked videos to the peer",
+    "reportEnabled": "Generate a watch report",
+    "reportHour": "Report hour"
+  },
+  "hints": {
+    "model": "Leave empty to follow the model chosen in DSH settings; pick one explicitly to show its real name in the status bar.",
+    "commentOthers": "Off by default: commenting on other people's posts invites reports and risk control."
+  },
+  "actions": {
+    "runNow": "Run one round now",
+    "save": "Save",
+    "saved": "Saved",
+    "testHealth": "Self-check",
+    "refreshReport": "Refresh report"
+  },
+  "status": {
+    "sentinel": "Sentinel",
+    "memories": "Memories",
+    "diary": "Diary",
+    "nextRun": "Next run",
+    "modelIdle": "No model configured"
+  }
+}
