@@ -1,0 +1,44 @@
+name: test
+
+# 每次改动都跑一遍全部单测。
+# 全部用例都是纯本地的：不碰 Edge、不碰抖音、不联网，几百毫秒跑完。
+# 凡是需要真浏览器的验证都在「服务器实机验证」里做，不进 CI。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.13.0', '22.x']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: 语法检查
+        run: |
+          for f in *.mjs index.js; do node --check "$f"; done
+
+      - name: 单测
+        run: node --test tests/
+
+      - name: 打包体积
+        run: |
+          npm pack --dry-run --json > /tmp/pack.json
+          node -e "
+            const j = JSON.parse(require('fs').readFileSync('/tmp/pack.json','utf8'))[0];
+            console.log('文件', j.entryCount, '打包', (j.size/1024).toFixed(1)+'kB', '解包', (j.unpackedSize/1024).toFixed(1)+'kB');
+            if (j.size > 400*1024) { console.error('包体超过 400kB，检查是否误打包了 node_modules'); process.exit(1); }
+          "
