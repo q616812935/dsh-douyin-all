@@ -221,6 +221,32 @@ export class Brain {
     return { ok: false, text: fallbackComment(incoming), source: 'fallback' }
   }
 
+  /**
+   * 在别人的视频下面留一条顶层评论（不是回复谁），评论区的话要短。
+   * 和 replyComment 的区别：这里没有「对方说了什么」可接，只能接视频本身，
+   * 所以必须给她足够材料（摘要、标签、热评），否则会写出「好看」「哈哈」这种对谁都成立的话。
+   */
+  async commentVideo({ videoSummary = '', videoDesc = '', author = '', tags = [], reaction = '', topComments = [] } = {}) {
+    const c = this.conf
+    const max = c.comments?.maxChars || 60
+    const p = this.soul.personaPrompt({ context: 'comment', who: author })
+    const hot = (topComments || []).slice(0, 3).map((x) => `· ${x.nick || '网友'}：${x.text}`).join('\n')
+    const user = [
+      `你刷到一个别人的视频。${author ? '作者是「' + author + '」。' : ''}`,
+      `视频内容：${videoSummary || String(videoDesc || '').slice(0, 120)}`,
+      tags.length ? `相关标签：${tags.join('、')}` : '',
+      reaction ? `你看到它时的反应：${reaction}` : '',
+      hot ? `已经有的热评：\n${hot}` : '',
+      '写一条你想留在评论区的评论。要求：只输出这一句；',
+      '要接这条视频的具体内容（说出画面里/文案里到底是什么打动了你），不要「好看」「哈哈」这种对哪条视频都成立的话；',
+      '不要 @ 任何人，不要提你自己的身份，不要引号、不要解释。',
+      `最多 ${max} 字。`,
+    ].filter(Boolean).join('\n')
+    const r = await this.ask({ system: p, user, maxChars: max, temperature: 1.0 })
+    if (r.ok) return { ...r, text: cleanReply(r.text, max) }
+    return { ok: false, text: '', source: 'none', why: r.why || '模型没给出话' }
+  }
+
   /** 主动私信：挑到一个视频，说一句。 */
   async pickPitch({ who, videoDesc, comments = [] }) {
     const p = this.soul.personaPrompt({ context: 'pick', who })
@@ -293,14 +319,15 @@ export class Brain {
       taste ? `你自己的口味：${taste}` : '你还没有形成明确口味，就凭第一直觉。',
       '',
       '凭你自己的喜好判断：这条你想不想看下去？',
-      '你有自己的偏好，别当只会说「没意思」的挑剔鬼：看到能戳中你的（猫、吃的、好笑的、可爱的小动物、',
-      '唱歌跳舞、海、手工、生活小事）就大方说 like，这本来就是你爱看的东西。',
+      '规则很明确，照着判，别当只会说「没意思」的挑剔鬼：',
+      '· 视频内容属于上面「你爱看的」那些领域（哪怕只是标题、话题标签沾上），就判 like；',
+      '· 内容属于「你不爱看的」那些，判 dislike；',
+      '· 只有完全两不沾、也判断不出在讲什么的，才判 neutral。',
+      '意思就是：中立应该是少数，你是个有明确偏好的人，别一路 neutral。',
       '只输出 JSON：{"verdict":"like|neutral|dislike","strength":1-3,"reaction":"一句话反应，20 字以内"}',
-      'verdict 只有三种：真想看/觉得有意思 = like；无感 = neutral；不喜欢这类 = dislike。',
-      '三种都要用得上：大多数视频无感是正常的，但遇到你真心喜欢的必须给 like，别一路 dislike。',
       'reaction 要说你自己此刻的反应（「这个我笑了」「没意思划走」），不要评价视频好坏。',
     ].filter(Boolean).join('\n')
-    const r = await this.ask({ system: p, user, maxChars: 400, temperature: 0.9 })
+    const r = await this.ask({ system: p, user, maxChars: 400, temperature: 0.4 })
     if (!r.ok) return { ok: false, verdict: 'neutral', strength: 1, reaction: '', why: r.why }
     let obj = null
     try {
@@ -396,6 +423,36 @@ export class Brain {
     const arr = parseJsonArray(r.text.replace(/\s*\n\s*/g, ' '))
     return arr.filter((x) => x && String(x.text || '').trim()).slice(0, 3)
   }
+
+  /**
+   * 只抽「关于他的、真正值得记一辈子的」事实。
+   *
+   * 为什么要有第二个抽取器：私信里大部分内容是即时互动（「松不松手由你说了算」），
+   * extractMemories 会把它们当成 promise 全记下来 —— 实测跑出 273 条 promise，
+   * 把长期记忆塞满到 623/800，真正的「他喜欢猫」反而检索不到。
+   *
+   * 另外还有一类干脆不能记：插件自身的事（「私信通道已接通」「他有个叫 dsh-douyin-all 的插件」）
+   * 和角色卡设定（「他设定自己有尾巴」「他称呼我为主人」）。那是元信息，不是关于他的人生。
+   * 这类在服务端就过滤掉，不指望模型自律（实测它照抄）。
+   */
+  async extractFacts({ who, lines = [] }) {
+    if (!lines.length) return []
+    const user = [
+      `下面是我和「${who}」的聊天记录：`,
+      lines.map((m) => `${m.mine ? '我' : who}：${m.text}`).join('\n'),
+      '',
+      '只挑出关于「他本人」长期有效的客观事实：身份与职业、住在哪、家里的宠物和它的名字、',
+      '明确的喜好与厌恶、习惯和作息、身体或健康上的情况、重要的日子、他的长期计划。',
+      '不要记：调情和亲密互动里的话、一时的情绪、约定和承诺、他说「你去干什么」之类的指令、',
+      '他对我（助手）的评价或称呼、任何关于软件/插件/系统/机器人/AI 的事、我自己的设定。',
+      '没有符合的就输出 []，宁缺毋滥，最多 3 条。',
+      '只输出 JSON 数组，元素形如 {"text":"...","kind":"fact|preference|routine|event","importance":1-5}。',
+    ].join('\n')
+    const r = await this.ask({ system: '你是一个只输出 JSON 的信息抽取器，不要输出任何别的文字。', user, maxChars: 1200, temperature: 0.2 })
+    if (!r.ok) return []
+    const arr = parseJsonArray(r.text.replace(/\s*\n\s*/g, ' '))
+    return arr.filter((x) => x && String(x.text || '').trim()).slice(0, 3)
+  }
 }
 
 // ── 小工具 ──────────────────────────────────────────────────────────────────
@@ -411,8 +468,30 @@ export function cleanReply(text, maxChars = 120) {
   s = s.replace(/^["'“”「『]+/, '').replace(/["'“”」』]+$/, '')
   // 只取第一段（模型有时会写「选项 A / 选项 B」）
   s = s.split(/\n{2,}/)[0].replace(/\s*\n\s*/g, ' ').trim()
-  if (s.length > maxChars) s = s.slice(0, maxChars)
+  if (s.length > maxChars) s = clipAtSentence(s, maxChars)
   return s
+}
+
+/**
+ * 超长时按「句子边界」收口，而不是硬切。
+ *
+ * 线上真实翻车：分享视频那句话被硬切成「…那个视频最后那下，我心里堵得慌。你说，你会不会也那」，
+ * 用户看到的是半句话，比不给提示还糟。这里优先回退到最近的句读（。！？～；!?），
+ * 回退后太短（少于一半）才退回按逗号切，最后才硬截并补省略号。
+ */
+function clipAtSentence(s, maxChars) {
+  const head = s.slice(0, maxChars)
+  const hard = /[。！？!?～~]/
+  const soft = /[，,、；;]/
+  for (const re of [hard, soft]) {
+    for (let i = head.length - 1; i >= 0; i--) {
+      if (re.test(head[i])) {
+        if (i + 1 >= Math.floor(maxChars * 0.5)) return head.slice(0, i + 1)
+        break
+      }
+    }
+  }
+  return head.slice(0, Math.max(1, maxChars - 1)) + '…'
 }
 
 // ── dsh-llm 消息构造器 ──────────────────────────────────────────────────────
