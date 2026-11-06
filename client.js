@@ -1,6 +1,3 @@
-/*! dsh-douyin-all · Copyright (c) 2026 dsh-douyin-all authors · All rights reserved.
- *  Proprietary and confidential — UNLICENSED. Modification, redistribution and
- *  republication are prohibited. See LICENSE. */
 // dsh-douyin-all 设置页
 // 视觉规范照 DSH 自身设置页：卡片分区、统一下拉/输入框、36×20 滑块开关。
 // 数据全部走 /api/douyin-all/*（GET /state 读，POST /config 改）。
@@ -22,15 +19,8 @@ window.__ModuleLoader__.load({
       ok: '#1e8e5a',
     };
 
-    // 首次开通向导的四步，和后端 setup.mjs 的 STEPS 一一对应
-    const SETUP_LABEL = {
-      login: '还没登录',
-      identify: '等你确认这是你的号',
-      peer: '等你选跟谁聊',
-      done: '已开通',
-    };
-
-    const ctlBase = {      height: 32, borderRadius: 8, border: '1px solid ' + C.line,
+    const ctlBase = {
+      height: 32, borderRadius: 8, border: '1px solid ' + C.line,
       background: 'transparent', color: C.text, padding: '0 8px',
       fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
     };
@@ -135,9 +125,6 @@ window.__ModuleLoader__.load({
       const [tab, setTab] = useState('basic');
       const [events, setEvents] = useState(null);
       const [report, setReport] = useState(null);
-      const [probe, setProbe] = useState(null);
-      const [draftOwner, setDraftOwner] = useState(null);
-      const [draftPeer, setDraftPeer] = useState(null);
       const cardRef = useRef('');
 
       const load = () => fetch('/api/douyin-all/state')
@@ -209,62 +196,15 @@ window.__ModuleLoader__.load({
           .then(() => setBusy(''));
       };
 
-const loadEvents = () => {
+      const loadEvents = () => {
         setBusy('ev');
         fetch('/api/douyin-all/events?limit=40').then((r) => r.json())
           .then((d) => setEvents(d.events || []))
           .catch(() => setNote('读事件失败'))
           .then(() => setBusy(''));
       };
-      // ── 首次开通向导 ──
-      // 后端：GET /setup、POST /setup/scan（开页边扫边判）、/setup/login（拉有头 Edge 让人扫码）、
-      //       /setup/advance（identify 收 owner / peer 收 peer / reset 回第一步）。
-      const openSetup = () => {
-        if (busy) return;
-        setBusy('setup-login');
-        setNote('正在打开抖音窗口，稍等十几秒…');
-        fetch('/api/douyin-all/setup/login', { method: 'POST' })
-          .then((r) => r.json())
-          .then((d) => {
-            if (!d.ok) return setNote('打开窗口失败：' + (d.error || '未知'));
-            setNote(d.already ? '抖音窗口已经开着，去那个窗口里登录就行。' : '窗口开好了，在那个窗口里扫码登录，登录完回来点「我登录好了」。');
-          })
-          .catch(() => setNote('打开窗口失败：接口没返回'))
-          .then(() => setBusy(''));
-      };
-
-      const scanSetup = () => {
-        if (busy) return;
-        setBusy('setup-scan');
-        setNote('正在看当前页面的登录状态和会话列表…');
-        fetch('/api/douyin-all/setup/scan', { method: 'POST' })
-          .then((r) => r.json())
-          .then((d) => {
-            setProbe(d);
-            if (!d.ok) return setNote('扫描失败：' + (d.error || '未知'));
-            setNote(d.hint || '扫完了');
-            load();
-          })
-          .catch(() => setNote('扫描失败：接口没返回'))
-          .then(() => setBusy(''));
-      };
-
-      const advanceSetup = (body) => {
-        if (busy) return;
-        setBusy('setup-adv');
-        fetch('/api/douyin-all/setup/advance', {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
-        }).then((r) => r.json())
-          .then((d) => {
-            if (!d.ok) return setNote('没走下去：' + (d.error || '未知'));
-            setNote('好，下一步。');
-            load();
-          })
-          .catch(() => setNote('没走下去：接口没返回'))
-          .then(() => setBusy(''));
-      };
-
-      const loadReport = () => {        setBusy('rp');
+      const loadReport = () => {
+        setBusy('rp');
         fetch('/api/douyin-all/report?days=1').then((r) => r.json())
           .then((d) => setReport(d))
           .catch(() => setNote('读日报失败'))
@@ -299,14 +239,8 @@ const loadEvents = () => {
         (st.models || []).map((m) => ({ value: m.provider + '|' + m.model, label: m.providerName + ' / ' + (m.name || m.model) })),
       );
       const curModel = cfg.model && cfg.model.provider ? cfg.model.provider + '|' + cfg.model.model : '';
-      const stSetup = st.setup || {};
-      const setupStep = stSetup.step || 'login';
-      const setupLocked = stSetup.locked !== false;
-      const setupOwner = stSetup.owner || '';
-      const setupPeer = stSetup.peer || '';
 
       const tabs = [
-        { k: 'setup', label: '首次开通' },
         { k: 'basic', label: '基础' },
         { k: 'dm', label: '私信' },
         { k: 'comments', label: '评论' },
@@ -350,94 +284,6 @@ const loadEvents = () => {
         ),
 
         // ── 基础 ──
-        // ── 首次开通 ──
-        // 四步：登录 → 认出自己 → 选对端 → 完成。没走完时所有对外发送都是锁死的，
-        // 这一步是给「第一次装上、还没登录过抖音」的人用的。
-        tab === 'setup' ? h('div', null,
-          h(Card, { title: '当前状态', anchor: 'setup' },
-            h(Row, { label: '进行到哪一步', hint: '走完最后一步才会真的往外发消息' },
-              TAG(SETUP_LABEL[setupStep] || setupStep, setupLocked ? C.danger : C.ok)),
-            h(Row, { label: '对外发送', hint: setupLocked ? '已锁：所有私信 / 评论 / 转发都不会发出去' : '已解锁：自动陪伴照配置在跑' },
-              TAG(setupLocked ? '锁着' : '开着', setupLocked ? C.danger : C.ok)),
-            h(Row, { label: '认出的是谁', hint: '用它判断哪些作品是自己的、@ 的时候写谁' },
-              setupOwner ? TAG('@' + setupOwner) : TAG('还没认出', C.text3)),
-            h(Row, { label: '跟谁聊', hint: '私信只跟左栏会话里这一个人来往' },
-              setupPeer ? TAG(setupPeer) : TAG('还没选', C.text3)),
-          ),
-
-          h(Card, { title: '第 1 步：登录抖音' },
-            h('div', { style: { fontSize: 12.5, color: C.text3, lineHeight: '19px', padding: '8px 0 4px' } },
-              '点下面的按钮会打开一个抖音窗口（不占你的浏览器），在那个窗口里扫码登录。',
-              '登录状态存在本插件自己的浏览器配置里，以后不用再登。'),
-            h(Row, { label: '打开抖音窗口' },
-              h(Btn, { onClick: openSetup, disabled: !!busy, primary: setupStep === 'login' },
-                busy === 'setup-login' ? '正在开…' : '打开抖音窗口')),
-            h(Row, { label: '登录好了，看看现在什么样' },
-              h(Btn, { onClick: scanSetup, disabled: !!busy },
-                busy === 'setup-scan' ? '正在看…' : '扫描当前状态')),
-          ),
-
-          h(Card, { title: '第 2 步：认出这是你的号' },
-            h('div', { style: { fontSize: 12.5, color: C.text3, lineHeight: '19px', padding: '8px 0 4px' } },
-              '扫上面那次会把昵称读出来。如果读到了，直接点「对，这是我」；读不到或读错了，手动填。'),
-            h(Row, { label: '你的抖音昵称',
-              hint: (probe && probe.suggested) ? ('扫到的是「' + probe.suggested + '」') : '照抖音「我」页面显示的名字抄' },
-              h(Txt, {
-                value: draftOwner === null ? (setupOwner || '') : draftOwner,
-                onChange: setDraftOwner,
-                placeholder: (probe && probe.suggested) || '例如：小明',
-              })),
-            h(Row, { label: '确认' },
-              h('div', { style: { display: 'flex', gap: 8 } },
-                (probe && probe.suggested && probe.suggested !== setupOwner)
-                  ? h(Btn, { onClick: () => advanceSetup({ step: 'identify', owner: probe.suggested }), disabled: !!busy },
-                    '对，这是我')
-                  : null,
-                h(Btn, {
-                  onClick: () => advanceSetup({ step: 'identify', owner: String(draftOwner === null ? (setupOwner || '') : draftOwner).trim() }),
-                  disabled: !!busy || !String(draftOwner === null ? (setupOwner || '') : draftOwner).trim(),
-                  primary: setupStep === 'identify',
-                }, '用这个名字'),
-              )),
-          ),
-
-          h(Card, { title: '第 3 步：跟谁聊' },
-            h('div', { style: { fontSize: 12.5, color: C.text3, lineHeight: '19px', padding: '8px 0 4px' } },
-              (probe && probe.rows && probe.rows.length)
-                ? '下面是左栏里的会话，点一个就是它。老会话可能收在折叠区里，翻一下再扫。'
-                : '先把「打开抖音窗口」里的私信点开一次，让左栏把会话加载出来，再回来扫描。'),
-            (probe && probe.rows && probe.rows.length)
-              ? h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 8, padding: '6px 0 10px' } },
-                ...probe.rows.slice(0, 20).map((r, i) => h('button', {
-                  key: 'peer-' + i + '-' + r.nick, type: 'button',
-                  onClick: () => advanceSetup({ step: 'peer', peer: r.nick }),
-                  disabled: !!busy || !!setupPeer,
-                  style: Object.assign({}, ctlBase, {
-                    width: 'auto', padding: '0 10px', cursor: (busy || setupPeer) ? 'default' : 'pointer',
-                    opacity: (busy || setupPeer) ? 0.5 : 1,
-                  }),
-                }, r.nick)))
-              : null,
-            h(Row, { label: '或者手动填昵称', hint: '必须和左栏显示的一字不差' },
-              h(Txt, {
-                value: draftPeer === null ? (setupPeer || '') : draftPeer,
-                onChange: setDraftPeer,
-                placeholder: '例如：某某',
-              })),
-            h(Row, { label: '确认' },
-              h(Btn, {
-                onClick: () => advanceSetup({ step: 'peer', peer: String(draftPeer === null ? (setupPeer || '') : draftPeer).trim() }),
-                disabled: !!busy || !setupOwner || !String(draftPeer === null ? (setupPeer || '') : draftPeer).trim(),
-                primary: setupStep === 'peer',
-              }, '就它了')),
-          ),
-
-          setupStep === 'done' ? null : h(Card, { title: '重来' },
-            h(Row, { label: '全部重来', hint: '换号登录、或对端换人了才需要' },
-              h(Btn, { onClick: () => advanceSetup({ step: 'reset' }), disabled: !!busy }, '从头开始')),
-          ),
-        ) : null,
-
         tab === 'basic' ? h('div', null,
           h(Card, { title: '总开关', anchor: 'main' },
             h(Row, { label: '自动陪伴', hint: '关掉后不再自动跑，但工具和设置仍然可用' },
@@ -487,7 +333,7 @@ const loadEvents = () => {
 
           h(Card, { title: '人格', anchor: 'persona' },
             h('div', { style: { fontSize: 12, color: C.text3, lineHeight: '20px', padding: '6px 0 2px' } },
-              '当前人格：' + ((st.soul && st.soul.persona && st.soul.persona.name) || '内置助手') + '。改这里会立刻影响之后的每一句话。'),
+              '当前人格：' + ((st.soul && st.soul.persona && st.soul.persona.name) || '默认大肥鱼') + '。改这里会立刻影响之后的每一句话。'),
             h(PersonaBox, { persona: st.soul && st.soul.persona, onSave: (p) => {
               setBusy('pe');
               fetch('/api/douyin-all/persona', {
@@ -514,16 +360,6 @@ const loadEvents = () => {
             ),
             h(Row, { label: '回复前停顿', hint: '毫秒；太像机器秒回反而容易被起疑' },
               h(Num, { value: dm.replyDelayMs, min: 0, max: 60000, width: 92, onChange: (v) => patch({ dm: Object.assign({}, dm, { replyDelayMs: Number(v) || 0 }) }) }),
-            ),
-            h(Row, { label: '每小时 / 每天上限', hint: '条；超出就停手，事件里会说原因' },
-              h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 6 } },
-                h(Num, { value: dm.maxPerHour, min: 1, max: 200, width: 64, onChange: (v) => patch({ dm: Object.assign({}, dm, { maxPerHour: Number(v) || 30 }) }) }),
-                h('span', { style: { fontSize: 12, color: C.text3 } }, '/'),
-                h(Num, { value: dm.maxPerDay, min: 1, max: 1000, width: 64, onChange: (v) => patch({ dm: Object.assign({}, dm, { maxPerDay: Number(v) || 120 }) }) }),
-              ),
-            ),
-            h(Row, { label: '两条之间至少隔', hint: '秒；避免刷屏节奏' },
-              h(Num, { value: dm.minGapSeconds, min: 0, max: 600, width: 84, onChange: (v) => patch({ dm: Object.assign({}, dm, { minGapSeconds: Number(v) || 0 }) }) }),
             ),
             h(Row, { label: '回语音', hint: '用 TTS 合成语音发过去（对方听到的是真人声线）' },
               h(Switch, { checked: !!dm.voiceReply, onChange: (v) => patch({ dm: Object.assign({}, dm, { voiceReply: v }) }) }),
@@ -578,18 +414,6 @@ const loadEvents = () => {
             h(Row, { label: '多久扫一次评论', hint: '分钟' },
               h(Num, { value: cm.scanMinutes, min: 1, max: 240, onChange: (v) => patch({ comments: Object.assign({}, cm, { scanMinutes: Number(v) || 10 }) }) }),
             ),
-            h(Row, { label: '严格模式', hint: '连「亲 / 感谢您的支持 / 家人们」这类客服腔也拦掉，默认开' },
-              h(Switch, { checked: cm.strict !== false, onChange: (v) => patch({ comments: Object.assign({}, cm, { strict: v }) }) }),
-            ),
-            h(Row, { label: '允许带站外链接', hint: '默认关；开了才允许回复里出现 http 链接' },
-              h(Switch, { checked: cm.allowOutsideLink === true, onChange: (v) => patch({ comments: Object.assign({}, cm, { allowOutsideLink: v }) }) }),
-            ),
-            h(Row, { label: '额外禁止词', hint: '逗号分隔；命中就不发' },
-              h(Txt, {
-                value: Array.isArray(cm.bannedWords) ? cm.bannedWords.join(',') : '',
-                onChange: (v) => patch({ comments: Object.assign({}, cm, { bannedWords: String(v).split(/[,，]/).map((s) => s.trim()).filter(Boolean) }) }),                width: 240, placeholder: '例如：广告,加我',
-              }),
-            ),
           ),
         ) : null,
 
@@ -604,6 +428,18 @@ const loadEvents = () => {
             ),
             h(Row, { label: '挑到了就转发给对端', hint: '用私信发「一句话 + 链接」，送达可验证' },
               h(Switch, { checked: !!fd.shareToPeer, onChange: (v) => patch({ feed: Object.assign({}, fd, { shareToPeer: v }) }) }),
+            ),
+            h(Row, { label: '在别人的视频下 @ 对端', hint: '公开评论里真的 @ 上他（服务端回执会带 user_id 才算数）' },
+              h(Switch, { checked: !!fd.mentionPeer, onChange: (v) => patch({ feed: Object.assign({}, fd, { mentionPeer: v }) }) }),
+            ),
+            h(Row, { label: '随机评论感兴趣的别人的视频', hint: '挑她真喜欢的一条，在下面留一句' },
+              h(Switch, { checked: !!fd.commentPeers, onChange: (v) => patch({ feed: Object.assign({}, fd, { commentPeers: v }) }) }),
+            ),
+            h(Row, { label: '只看多新的', hint: '小时；更老的降权（推荐流里会混进几个月前的）' },
+              h(Num, { value: fd.freshHours, min: 0, max: 720, onChange: (v) => patch({ feed: Object.assign({}, fd, { freshHours: Number(v) || 0 }) }) }),
+            ),
+            h(Row, { label: '每天最多主动几次', hint: '分享 / 评论 / @ 共用这一份额度' },
+              h(Num, { value: fd.proactivePerDay, min: 0, max: 50, onChange: (v) => patch({ feed: Object.assign({}, fd, { proactivePerDay: Number(v) || 0 }) }) }),
             ),
             h(Row, { label: '喜欢 / 不喜欢', hint: '逗号分隔的标签，影响打分' },
               h('span', { style: { display: 'inline-flex', gap: 6 } },
@@ -632,10 +468,8 @@ const loadEvents = () => {
                 h(Btn, { onClick: () => runOnce('dm'), disabled: busy === 'run' }, '私信'),
                 h(Btn, { onClick: () => runOnce('comments'), disabled: busy === 'run' }, '评论'),
                 h(Btn, { onClick: () => runOnce('feed'), disabled: busy === 'run' }, '刷流'),
+                h(Btn, { onClick: () => runSocial(), disabled: busy === 'run' }, busy === 'social' ? '刷着呢…' : '刷一次并评论'),
               ),
-            ),
-            h(Row, { label: '刷一次并评论', hint: '立刻刷一遍推荐流，挑一条她感兴趣的，分享到你私信 / @ 你 / 在别人视频下留一句话（只做一件）' },
-              h(Btn, { onClick: runSocial, disabled: busy === 'social' }, busy === 'social' ? '刷着呢…' : '现在就试一次'),
             ),
             h(Row, { label: '最近发生了什么', hint: 'events.jsonl 的尾部' },
               h(Btn, { onClick: loadEvents, disabled: busy === 'ev' }, busy === 'ev' ? '读…' : '看事件'),
@@ -672,14 +506,13 @@ const loadEvents = () => {
     }
 
     // 人格文本框：离开输入框才提交（和 DSH 自己的设置页一致）
-    const PERSONA_FALLBACK = '小助手';
     function PersonaBox({ persona, onSave }) {
-      const [name, setName] = useState((persona && persona.name) || PERSONA_FALLBACK);
+      const [name, setName] = useState((persona && persona.name) || '小助手');
       const [card, setCard] = useState((persona && (persona.card || persona.systemPrompt)) || '');
       const dirty = useRef(false);
       useEffect(() => {
         if (dirty.current) return;
-        setName((persona && persona.name) || PERSONA_FALLBACK);
+        setName((persona && persona.name) || '大肥鱼');
         setCard((persona && (persona.card || persona.systemPrompt)) || '');
       }, [persona]);
       const commit = () => { if (dirty.current) { dirty.current = false; onSave({ name, card }) } };
@@ -694,7 +527,7 @@ const loadEvents = () => {
           }),
         ),
         h('textarea', {
-          value: card, rows: 8, placeholder: '她是谁、脾气怎样、喜欢什么、怎么说话……留空就用内置的中性人格卡',
+          value: card, rows: 8, placeholder: '她是谁、脾气怎样、喜欢什么、怎么说话……留空就用内置的人设卡',
           onChange: (e) => { dirty.current = true; setCard(e.target.value) },
           onBlur: commit,
           style: {
