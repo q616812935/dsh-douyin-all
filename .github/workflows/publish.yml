@@ -1,0 +1,62 @@
+name: publish
+
+# 发布到 npm 的唯一通道。
+# 使用 npm Trusted Publishing（OIDC）：不需要任何长期 token 或 2FA 动态码，
+# 由 npm 校验「这个 workflow 确实来自这个仓库」，再签发一次性的短时凭据。
+#
+# 触发方式：
+#   1. 在 GitHub 网页 Actions -> publish -> Run workflow
+#   2. 推送形如 v0.1.0 的 tag
+#   3. 在 HOST 上打 tag 后用 .github/trigger-publish.js 远程触发
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write # Trusted Publishing 换 OIDC 凭据必须
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org/'
+
+      # Trusted Publishing 由 npm 侧校验 OIDC 身份，不需要 NODE_AUTH_TOKEN。
+      # 升级到这个版本以上才支持 OIDC 发布（含 provenance）。
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@^11.5.1
+
+      # 防止「版本号没改就重复触发」把 Action 弄成红色。
+      - name: Skip if this version already exists
+        id: check
+        run: |
+          NAME=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          echo "name=$NAME version=$VER"
+          if npm view "${NAME}@${VER}" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${NAME}@${VER} 已存在于 npm，跳过发布"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Syntax check
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          for f in *.mjs index.js client.js; do
+            node --check "$f" || exit 1
+          done
+          echo "all files pass node --check"
+
+      - name: Publish
+        if: steps.check.outputs.exists == 'false'
+        run: npm publish --access public --provenance
