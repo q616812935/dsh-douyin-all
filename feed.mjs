@@ -44,7 +44,7 @@ export async function videoDetail(p, awemeId, { timeoutMs = 15000 } = {}) {
  * 刷一轮推荐流。
  * feed 挂了也返回 ok:false 而不是抛 —— 上层据此决定「这轮跳过」。
  */
-export async function browse(p, { count = 6, timeoutMs = 8000 } = {}) {
+export async function browse(p, { count = 6, timeoutMs = 8000, selfNick = '', selfUid = '' } = {}) {
   const t0 = Date.now()
   const r = await apiFeed(p, count, { timeoutMs })
   if (r?.__timeout) {
@@ -56,9 +56,14 @@ export async function browse(p, { count = 6, timeoutMs = 8000 } = {}) {
     author: {
       nick: String(w.author?.nickname || ''),
       sec_uid: String(w.author?.sec_uid || ''),
+      uid: String(w.author?.uid || ''),
     },
     duration: Number(w.video?.duration || 0),
-    isMine: false,
+    // 推荐流里也会夹着自己的作品（尤其自己刚发/刚评过的）。
+    // 老实现写死 isMine:false，于是「挑一条来跟人说」可能挑到自己发的视频。
+    // 判据：uid 相同（最准），拿不到 uid 就退到昵称。
+    isMine: (selfUid && String(w.author?.uid || '') === String(selfUid))
+      || (!!selfNick && String(w.author?.nickname || '').trim() === String(selfNick).trim()),
   }))
   return {
     ok: items.length > 0,
@@ -74,7 +79,7 @@ export async function browse(p, { count = 6, timeoutMs = 8000 } = {}) {
 // 规则先粗筛，再由上层（模型）或这里给个分数决定。
 const BORING = [/^(#?)[\d\s]*$/, /^(转发|分享)/, /@[\u4e00-\u9fa5a-zA-Z0-9_]+/]
 
-export function score(item, { dislike = [], like = [], tasteTags = [], tasteScore = null } = {}) {
+export function score(item, { dislike = [], like = [], tasteTags = [], tasteScore = null, freshHours = 0, now = Date.now() } = {}) {
   const desc = String(item.desc || '')
   let s = 0
   if (desc.length >= 8) s += 2
@@ -93,38 +98,113 @@ export function score(item, { dislike = [], like = [], tasteTags = [], tasteScor
   if (item.statistics?.digg > 10000) s += 1
   if (item.isMine) s -= 10                   // 自己的作品不用「挑来跟人说」
   for (const re of BORING) if (re.test(desc)) s -= 4
+  // 新鲜度：推荐流里能刷到几个月前的老视频（实测刷到过 4 月发的），
+  // 对老视频说「刚刷到」很出戏，也会让「评论别人视频」变成考古。给了 freshHours 就压旧内容。
+  // 时间戳缺失（0）算「不知道」，不惩罚也不奖励。
+  if (freshHours > 0 && item.create_time) {
+    const ageH = (now - Number(item.create_time) * 1000) / 3600e3
+    if (ageH > freshHours * 4) s -= 8
+    else if (ageH > freshHours) s -= 3
+  }
   return s
 }
 
+/**
+ * 排序 + 截断。
+ * @param {object} opts
+ * @param {number} [opts.recallHours] 见过的视频在这么多小时内重新出现视为「又刷到了」，
+ *        必须明显强于新候选才保留 —— 否则推荐流抽签一抖，同一批 6 条视频就会反复重复分享。
+ */
 export function pick(items, opts = {}) {
-  const { limit = 3 } = opts
-  return items
-    .map((it) => ({ ...it, score: score(it, opts) }))
-    .filter((it) => it.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
+  const { limit = 3, recalled = [], recallHours = 72, now = Date.now() } = opts
+  const seen = new Map()
+  for (const r of recalled) if (r && r.awemeId) seen.set(String(r.awemeId), Number(r.at || 0))
+  const scored = items.map((it) => {
+    let s = score(it, { ...opts, now })
+    const at = seen.get(String(it.aweme_id || ''))
+    if (at && now - at < recallHours * 3600e3) {
+      s -= RECALL_PENALTY
+      return { ...it, score: s, recalled: true }
+    }
+    return { ...it, score: s, recalled: false }
+  })
+  const fresh = scored.filter((it) => !it.recalled && it.score > 0)
+  const again = scored.filter((it) => it.recalled && it.score > 0)
+  const out = fresh.sort((a, b) => b.score - a.score).slice(0, limit)
+  // 新东西不够时才轮到「又刷到的」，而且要分数真的高
+  if (out.length < limit) {
+    for (const it of again.sort((a, b) => b.score - a.score)) {
+      if (out.length >= limit) break
+      if (it.score > RECALL_PENALTY / 2) out.push(it)
+    }
+  }
+  return out
 }
 
-/** 挑几条 + 拉第一条的热评，凑成「她看懂了这条视频」的材料。 */
+/** 见过的视频降多少分（要能压过「猜你喜欢」的大约 +2~+20）。 */
+const RECALL_PENALTY = 12
+
+/**
+ * 挑几条 + 拉第一条的热评，凑成「她看懂了这条视频」的材料。
+ *
+ * 一次 browse 只回 2~6 条（实测多的时候 count=10 也只给 2 条），而且里面常夹着
+ * 文案很短、全是话题标签、或者有 @ 的老视频 —— 这些按 score 都掉到 0 分以下。
+ * 所以「刷一次 → 一条候选都没有」曾经是常态，表现出来就是「一整天什么都不发」。
+ * 现在：score>0 一条都没有时，再补刷 `extraBrowses` 轮；仍然没有就退而取「分数最高的那几条」，
+ * 让上层（模型）自己判断要不要表态，而不是在打分这一层就把整轮否掉。
+ */
 export async function pickWithContext(p, opts = {}) {
-  const { count = 6, limit = 1, topComments = 3, dislike = [], like = [], tasteTags = [], tasteScore = null } = opts
-  const br = await browse(p, { count })
-  if (!br.ok) return { ok: false, ...br, picked: null, comments: [] }
-  const cands = pick(br.items, { dislike, like, tasteTags, tasteScore, limit: Math.max(limit, 3) })
-  if (!cands.length) return { ok: false, code: 'nothing-interesting', why: '这轮没有想说的', items: br.items.length, picked: null, comments: [] }
+  const {
+    count = 6, limit = 1, topComments = 3, dislike = [], like = [], tasteTags = [],
+    tasteScore = null, freshHours = 0, recalled = [], recallHours = 72,
+    extraBrowses = 2, minScore = -3, selfNick = '', selfUid = '',
+  } = opts
+  const t0 = Date.now()
+  const all = []
+  let scanned = 0
+  let tries = 0
+  const seenIds = new Set()
+  let cands = []
+  for (let i = 0; i <= extraBrowses; i++) {
+    tries += 1
+    const br = await browse(p, { count , selfNick, selfUid })
+    if (!br.ok && !all.length) return { ok: false, ...br, picked: null, comments: [] }
+    scanned += br.items.length
+    for (const it of br.items) {
+      const id = String(it.aweme_id || '')
+      if (!id || seenIds.has(id)) continue
+      seenIds.add(id)
+      all.push(it)
+    }
+    cands = pick(all, { dislike, like, tasteTags, tasteScore, freshHours, recalled, recallHours, limit: Math.max(limit, 3) })
+    if (cands.length >= Math.max(1, Math.min(limit, 3))) break
+    if (!br.ok) break
+  }
+  // 兜底：没有正分的就取分数最高的一批（过掉明显无聊/自己的），交给模型判断
+  if (!cands.length) {
+    const scored = all
+      .map((it) => ({ ...it, score: score(it, { dislike, like, tasteTags, tasteScore, freshHours }) }))
+      .filter((it) => !it.isMine && it.score >= minScore)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(limit, 3))
+    cands = scored
+  }
+  if (!cands.length) {
+    return { ok: false, code: 'nothing-interesting', why: '这轮没有想说的', items: all.length, scanned, tries, picked: null, comments: [] }
+  }
   const top = cands[0]
   let comments = []
   try {
     const cl = await commentList(p, top.aweme_id, { count: 20 })
     const list = Array.isArray(cl?.comments) ? cl.comments : []
     comments = list
-      .filter((c) => !pickComment(c).is_author)
+      .filter((c) => { const pc = pickComment(c); return !(selfNick ? (String(pc.nick || '').trim() === String(selfNick).trim()) : pc.is_author) })
       .sort((a, b) => Number(b.digg_count || 0) - Number(a.digg_count || 0))
       .slice(0, topComments)
       .map((c) => ({ nick: String(c.user?.nickname || ''), text: String(c.text || ''), digg: Number(c.digg_count || 0) }))
   } catch { /* 热评拿不到不影响挑视频 */ }
   // cands 是数组（候选视频），candidateCount 是数量——名字别只差一个 s，调用方踩过。
-  return { ok: true, tookMs: br.tookMs, scanned: br.items.length, picked: top, candidateCount: cands.length, cands, comments }
+  return { ok: true, tookMs: Date.now() - t0, scanned, tries, picked: top, candidateCount: cands.length, cands, comments }
 }
 
 /** 把视频转成一句可读的摘要（给日报、给模型当材料） */
