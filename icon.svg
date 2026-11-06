@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
   <rect width="64" height="64" rx="14" fill="#0f172a"/>
-  <!-- 鱼身：大肥鱼 -->
+  <!-- 鱼身 -->
   <path d="M8 33 C 14 20, 34 18, 42 30 C 34 44, 14 46, 8 33 Z" fill="#22d3ee" stroke="#0e7490" stroke-width="2"/>
   <!-- 尾巴 -->
   <path d="M42 30 L57 21 L53 33 L57 45 Z" fill="#38bdf8" stroke="#0e7490" stroke-width="2" stroke-linejoin="round"/>
