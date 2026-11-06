@@ -185,7 +185,31 @@ window.__ModuleLoader__.load({
           .then(() => setBusy(''));
       };
 
-      const loadEvents = () => {
+      // 「刷一次并评论」：只跑刷流那一段，并且打开「评论别人的视频」，看看她真会说什么。
+      // 不动配置里的其他开关 —— 用户点一下只是「现在就试一次」。
+      const runSocial = () => {
+        if (busy) return;
+        setBusy('social');
+        setNote('正在刷一遍推荐流、挑一条感兴趣的评论…（一两分钟）');
+        fetch('/api/douyin-all/try-social', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ what: 'comment' }),
+        }).then((r) => r.json())
+          .then((d) => {
+            if (!d.ok) return setNote('跑失败：' + (d.error || '未知'));
+            const f = d.feed || {};
+            const bits = ['挑了：' + (f.why || '—')];
+            for (const [k, n] of [['share', '分享'], ['mention', '@'], ['comment', '评论']]) {
+              const v = f[k];
+              if (v) bits.push(n + '：' + (v.ok ? '发出' + (v.cid ? '(' + v.cid + ')' : '') : (v.skipped ? '跳过（' + (v.why || '') + '）' : '失败（' + (v.why || v.code || '') + '）')));
+            }
+            setNote(bits.join('；'));
+            load();
+          })
+          .catch(() => setNote('跑失败：接口没返回'))
+          .then(() => setBusy(''));
+      };
+
+const loadEvents = () => {
         setBusy('ev');
         fetch('/api/douyin-all/events?limit=40').then((r) => r.json())
           .then((d) => setEvents(d.events || []))
@@ -609,6 +633,9 @@ window.__ModuleLoader__.load({
                 h(Btn, { onClick: () => runOnce('comments'), disabled: busy === 'run' }, '评论'),
                 h(Btn, { onClick: () => runOnce('feed'), disabled: busy === 'run' }, '刷流'),
               ),
+            ),
+            h(Row, { label: '刷一次并评论', hint: '立刻刷一遍推荐流，挑一条她感兴趣的，分享到你私信 / @ 你 / 在别人视频下留一句话（只做一件）' },
+              h(Btn, { onClick: runSocial, disabled: busy === 'social' }, busy === 'social' ? '刷着呢…' : '现在就试一次'),
             ),
             h(Row, { label: '最近发生了什么', hint: 'events.jsonl 的尾部' },
               h(Btn, { onClick: loadEvents, disabled: busy === 'ev' }, busy === 'ev' ? '读…' : '看事件'),
